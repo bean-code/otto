@@ -6,6 +6,9 @@ fn main() {
                 "start_recording",
                 "stop_recording",
                 "speak",
+                "list_history",
+                "get_credential_status",
+                "set_credential",
             ])),
     )
     .expect("failed to run tauri-build");

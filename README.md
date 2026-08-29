@@ -41,6 +41,11 @@ versus staged.
   surfaces one grounded, specific observation - not generic advice, not a leaderboard.
 - **Cross-platform by construction.** CI builds, tests, and smoke-runs the whole workspace on Linux, macOS, and
   Windows on every push - see the badge above.
+- **Set up from inside the app.** A native Settings panel (also reachable from the OS menu bar) writes your
+  Claude/GitHub credentials straight to the keychain - no editing a config file or restarting to pick them up.
+- **Real, queryable history.** Every command is persisted to a local SQLite database and readable back from a
+  History tab in the app - built that way specifically so a future API layer over `otto-core` has real data to
+  serve, not a log file to re-parse.
 
 ## How it's put together
 
@@ -50,7 +55,7 @@ trait surface:
 
 | Crate | What it is |
 |---|---|
-| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name), `AgentLoop`, `CredentialStore` (OS keychain), `HistoryStore` (local JSONL log), `ActiveWindow` (working-hours scheduling), the growth-digest job. |
+| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name), `AgentLoop`, `CredentialStore` (OS keychain), `HistoryStore` (local SQLite, queryable and readable back - not a flat log), `ActiveWindow` (working-hours scheduling), the growth-digest job. |
 | `otto-skill-github` | **Fully working.** List open PRs, check CI/check-run status, open a PR from a branch. Built on [`octocrab`](https://docs.rs/octocrab). |
 | `otto-skill-deploy` | Scaffolded (compiles, tools defined) but not yet implemented - intended for triggering/monitoring GitHub Actions workflow runs. |
 | `otto-skill-calendar` | Scaffolded, not yet implemented - intended for Google Calendar (picked over Outlook as the starting provider). |
@@ -88,7 +93,15 @@ stores/reads secrets in the OS keychain via the [`keyring`](https://docs.rs/keyr
 - `github-token` - a GitHub personal access token (needs `repo` scope for private repos; `public_repo` is enough
   for public ones) with permission to read PRs/checks and open PRs on the repos you point it at.
 
-Set them with any keychain tool that writes to the `otto-assistant` service, or from Rust:
+**In `otto-ui`, the easiest way is Settings** - the gear icon in the toolbar, or "Otto > Settings..." in the
+native menu bar. Paste a key in and hit Save; it's written straight to the keychain and picked up immediately
+(the app rebuilds its GitHub/Claude clients on save - no restart needed). The toolbar's status pills show at a
+glance whether each credential is configured. `otto-ui` no longer requires the Claude key to exist before it'll
+even open - launch it with nothing configured and it starts fine, `run_command` just replies with a clear
+"add your Claude API key in Settings" instead of a working answer until you do.
+
+For `otto-cli`, or to script it, set them with any keychain tool that writes to the `otto-assistant` service, or
+from Rust:
 
 ```rust
 use otto_core::{CredentialStore, KeyringStore};
@@ -161,6 +174,25 @@ frontend is a matter of adding a crate under `crates/otto-ui/frontend/`, pointin
 `build.frontendDist` at its `trunk build` output, and wiring `beforeDevCommand`/`beforeBuildCommand` to
 `trunk serve`/`trunk build` - the Rust backend (commands, state, ACL) doesn't need to change.
 
+**What's actually in the window:**
+
+- **A native OS menu bar** (`tauri::menu`, wired in `otto-ui`'s `.setup()`) - an "Otto" menu with Settings and
+  Quit, and a standard Edit menu so cut/copy/paste and their OS keyboard shortcuts work in text fields. This is
+  genuinely native chrome (`AppKit`/`GTK`/`Win32` menus, not anything drawn in the webview) - Settings there and
+  the in-window gear button both open the same panel, just via different triggers (the menu item emits a
+  `open-settings` event the frontend listens for).
+- **Two tabs**: Dashboard (the PR/deployment/meeting panels, command bar, voice) and History (every past command,
+  read live from the SQLite store via `list_history` - see below).
+- **Toolbar status pills** for each credential (Claude/GitHub) that flip from amber "not set" to green
+  "configured" the moment Settings saves - `get_credential_status` never returns the values themselves, only
+  whether each is set.
+- **Toast notifications** for every command's outcome (success, failure, and the "finish setting up" nudge on
+  first launch if a credential is missing) - in addition to, not instead of, the OS-level desktop notifications
+  `notify_desktop` can send.
+
+The window keeps its normal OS title bar and decorations - "native" here means real OS menu/window chrome, not a
+custom-drawn titlebar replacing it.
+
 ### Voice: setup
 
 Voice is optional - `otto-ui` starts fine without it, the mic button just reports "voice input isn't available"
@@ -206,6 +238,18 @@ notification if it found something worth saying (see `otto_core::run_growth_dige
 for now: only open PRs on the default repo, not a full cross-repo activity history - extending that is a matter of
 growing `otto-skill-github`'s tool surface, not the digest logic itself.
 
+### History & persistence
+
+Every command - input, reply, and the structured `steps` data each skill returned - is written to a local SQLite
+database (`otto_core::SqliteHistory`, via [`rusqlite`](https://docs.rs/rusqlite)'s `bundled` feature, so there's
+no system `libsqlite3` dependency to install) at `history.sqlite3` in the OS data directory. This is deliberately
+not a flat JSONL log: the whole point of `HistoryStore::list_recent` existing as a real trait method (not just
+`record`) is that `otto-ui`'s History tab, and anything built on `otto-core` later - a REST API serving the same
+engine headlessly, say - reads it back with an actual query (`ORDER BY id DESC LIMIT ?`) instead of parsing a
+growing file front to back on every request. The schema is intentionally simple today (one `history` table,
+`steps` as a JSON column) - normalizing `steps` into its own table with a foreign key is the natural next step
+once something needs to query *across* steps (e.g. "every time `github_open_pr` was called").
+
 ## What "PR round-trip" looks like
 
 Typing `show me my open PRs` in either the CLI or the command bar:
@@ -218,7 +262,9 @@ Typing `show me my open PRs` in either the CLI or the command bar:
    structured PR list.
 3. The result goes back to Claude, which writes a final reply; `AgentLoop` returns `{ reply, steps }` - `steps`
    carries the structured data (used by the UI to render the PR panel) alongside the summary.
-4. The turn is appended to `history.jsonl` in the OS data directory (`~/.local/share/otto` on Linux).
+4. The turn is written to `history.sqlite3` in the OS data directory (`~/.local/share/otto` on Linux) - a real
+   table (`id`, `timestamp`, `input`, `reply`, `steps_json`), not a flat log, so `otto-ui`'s History tab (and any
+   future API server) can query it directly instead of re-parsing an ever-growing file.
 
 None of this is provider-specific plumbing you'd have to rewrite for a different model or a different skill: step
 1 comes from whatever's registered in `SkillRegistry`, step 2 is `llmprism`'s tool loop calling back into that
@@ -254,7 +300,13 @@ without it - "required for generating a Windows Resource file"), which is a sepa
 `icon.png` `generate_context!()` needs on every platform; see the Branding section above for where both come
 from now.
 
+`cargo test --workspace` passes too - including real (not just compiled) coverage of `SqliteHistory`: a
+round-trip test (record two entries, list them back newest-first) and a limit test, both against a temp on-disk
+database, in `crates/otto-core/src/history.rs`.
+
 Known gaps, tracked rather than hidden: `otto-skill-deploy` and `otto-skill-calendar` are scaffolded but not
 wired up, the dashboard frontend is plain HTML/JS rather than the originally-requested Dioxus (see the Desktop
-app section for why and how to swap it in), and the growth digest only looks at open PRs on one repo. None of
-these are blocked on anything - they're the natural next slice of work.
+app section for why and how to swap it in), the growth digest only looks at open PRs on one repo, and the
+`otto-ui` desktop window itself isn't visually verified in this environment (no display server here - see the
+Desktop app section for what's in it; `cargo build`/`cargo test` both pass, but only a real screen confirms it
+looks and behaves as described). None of these are blocked on anything - they're the natural next slice of work.

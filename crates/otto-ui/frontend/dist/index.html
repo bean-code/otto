@@ -7,194 +7,436 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0f1115;
-    --panel: #171a21;
-    --border: #262b36;
-    --text: #e6e8ee;
+    --bg: #0b0d12;
+    --bg-glow: radial-gradient(1200px 600px at 15% -10%, rgba(232, 163, 61, 0.10), transparent 60%),
+               radial-gradient(1000px 500px at 100% 0%, rgba(110, 168, 254, 0.08), transparent 55%);
+    --panel: rgba(23, 26, 33, 0.72);
+    --panel-solid: #171a21;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --text: #eef0f5;
     --muted: #8b93a7;
-    --accent: #6ea8fe;
+    --accent: #e8a33d;
+    --accent-2: #6ea8fe;
     --danger: #f4788a;
+    --success: #6fd6a8;
+    --radius: 12px;
+    --shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    font-family: -apple-system, "Segoe UI", "Space Grotesk", Inter, system-ui, sans-serif;
     background: var(--bg);
+    background-image: var(--bg-glow);
+    background-attachment: fixed;
     color: var(--text);
     height: 100vh;
     display: flex;
     flex-direction: column;
+    -webkit-font-smoothing: antialiased;
   }
-  header {
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header span { color: var(--muted); font-size: 12px; }
+  #app { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
-  main {
+  /* ---------- toolbar ---------- */
+  header.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: 0.02em; }
+  .brand img { width: 22px; height: 22px; border-radius: 6px; }
+  .brand .tagline { color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+  nav.tabs { display: flex; gap: 4px; -webkit-app-region: no-drag; }
+  nav.tabs button {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  nav.tabs button:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+  nav.tabs button.active { color: var(--bg); background: var(--accent); }
+
+  .toolbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
+  .status-pills { display: flex; gap: 6px; }
+  .pill {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .pill.ok { color: var(--success); border-color: rgba(111, 214, 168, 0.35); }
+  .pill.ok .dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+  .pill.warn { color: var(--accent); border-color: rgba(232, 163, 61, 0.35); }
+  .pill.warn .dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  .icon-button {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+  }
+  .icon-button:hover { background: rgba(255, 255, 255, 0.09); border-color: var(--border-strong); }
+
+  /* ---------- views ---------- */
+  .view { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .view.active { display: flex; }
+
+  main.dashboard {
     flex: 1;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
     padding: 16px 20px;
     overflow: auto;
+    align-content: start;
   }
   .panel {
     background: var(--panel);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius);
     padding: 14px;
     display: flex;
     flex-direction: column;
     min-height: 220px;
+    box-shadow: var(--shadow);
+    transition: border-color 0.2s ease;
   }
+  .panel:hover { border-color: var(--border-strong); }
   .panel h2 {
-    font-size: 13px;
+    font-size: 12px;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     color: var(--muted);
     margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
-  .panel .empty {
-    color: var(--muted);
-    font-size: 13px;
-    margin: auto 0;
-    text-align: center;
-  }
-  .panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .panel .empty { color: var(--muted); font-size: 13px; margin: auto 0; text-align: center; line-height: 1.5; }
+  .panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
   .panel li {
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 10px;
+    border-radius: 9px;
+    padding: 9px 11px;
     font-size: 13px;
+    transition: border-color 0.15s ease, background 0.15s ease;
   }
-  .panel li .title { font-weight: 500; }
-  .panel li .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .panel li:hover { border-color: var(--border-strong); background: rgba(255, 255, 255, 0.02); }
+  .panel li .title { font-weight: 600; }
+  .panel li .meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: rgba(232, 163, 61, 0.15);
+    color: var(--accent);
+    margin-right: 6px;
+    text-transform: uppercase;
+  }
 
-  footer {
+  /* ---------- command bar ---------- */
+  footer.command {
     border-top: 1px solid var(--border);
     padding: 14px 20px 18px;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    background: rgba(11, 13, 18, 0.6);
+    backdrop-filter: blur(10px);
   }
   #command-form { display: flex; gap: 8px; }
   #command-input {
     flex: 1;
-    background: var(--panel);
+    background: var(--panel-solid);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 9px;
     color: var(--text);
     padding: 10px 12px;
     font-size: 14px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
-  #command-input:focus { outline: none; border-color: var(--accent); }
-  #command-form button {
-    background: var(--accent);
-    color: #0b1220;
+  #command-input:focus { outline: none; border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(110, 168, 254, 0.15); }
+  #command-input:disabled { opacity: 0.6; }
+
+  #command-form button[type="submit"] {
+    background: linear-gradient(135deg, var(--accent), #f0b85c);
+    color: #1a0f02;
     border: none;
-    border-radius: 8px;
+    border-radius: 9px;
     padding: 0 18px;
-    font-weight: 600;
+    font-weight: 700;
     font-size: 14px;
     cursor: pointer;
+    transition: filter 0.15s ease, transform 0.1s ease;
   }
-  #command-form button:disabled { opacity: 0.5; cursor: default; }
+  #command-form button[type="submit"]:hover { filter: brightness(1.08); }
+  #command-form button[type="submit"]:active { transform: scale(0.97); }
+  #command-form button[type="submit"]:disabled { opacity: 0.5; cursor: default; filter: none; }
+
   #mic-button {
-    background: var(--panel);
+    background: var(--panel-solid);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 9px;
     width: 42px;
     font-size: 16px;
     cursor: pointer;
+    position: relative;
+    transition: all 0.15s ease;
   }
-  #mic-button.recording { background: var(--danger); color: #1a0508; border-color: var(--danger); }
+  #mic-button.recording {
+    background: var(--danger);
+    color: #1a0508;
+    border-color: var(--danger);
+    animation: pulse-ring 1.2s ease-out infinite;
+  }
   #mic-button:disabled { opacity: 0.35; cursor: default; }
-
-  #voice-options {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--muted);
-    font-size: 12px;
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(244, 120, 138, 0.5); }
+    70% { box-shadow: 0 0 0 10px rgba(244, 120, 138, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(244, 120, 138, 0); }
   }
+
+  #voice-options { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+
+  .thinking { display: none; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+  .thinking.active { display: flex; }
+  .thinking .orb {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: conic-gradient(var(--accent), var(--accent-2), var(--accent));
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   #transcript {
-    max-height: 220px;
+    max-height: 240px;
     overflow-y: auto;
     display: flex;
-    flex-direction: column;
+    flex-direction: column-reverse;
     gap: 8px;
     font-size: 13px;
   }
-  .entry { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .entry { border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; background: rgba(255, 255, 255, 0.015); animation: slide-in 0.2s ease; }
   .entry .prompt { color: var(--muted); margin-bottom: 4px; }
-  .entry .prompt::before { content: "> "; }
-  .entry .reply { white-space: pre-wrap; }
-  .entry .step { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .entry .prompt::before { content: "> "; color: var(--accent-2); }
+  .entry .reply { white-space: pre-wrap; line-height: 1.45; }
+  .entry .step { color: var(--muted); font-size: 12px; margin-top: 4px; padding-left: 10px; border-left: 2px solid var(--border-strong); }
   .entry.error .reply { color: var(--danger); }
+
+  @keyframes slide-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---------- history view ---------- */
+  main.history { flex: 1; overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .history-empty { margin: auto; color: var(--muted); text-align: center; font-size: 13px; }
+  .history-entry {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .history-entry .row { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .history-entry .prompt { font-weight: 600; }
+  .history-entry time { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .history-entry .reply { color: var(--muted); font-size: 13px; margin-top: 6px; line-height: 1.5; }
+  .history-entry .steps { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .history-entry .steps span {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: rgba(110, 168, 254, 0.12); color: var(--accent-2); border: 1px solid rgba(110, 168, 254, 0.25);
+  }
+
+  /* ---------- settings modal ---------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(3, 4, 6, 0.6);
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px); z-index: 50;
+    animation: fade-in 0.15s ease;
+  }
+  .overlay.hidden { display: none; }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  .modal {
+    width: 420px;
+    background: var(--panel-solid);
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: var(--shadow);
+  }
+  .modal h2 { margin: 0 0 4px; font-size: 16px; }
+  .modal .sub { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+  .field .field-status { font-weight: 500; color: var(--muted); }
+  .field .field-status.ok { color: var(--success); }
+  .field input {
+    width: 100%; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 13px; font-family: monospace;
+  }
+  .field input:focus { outline: none; border-color: var(--accent-2); }
+  .field .hint { color: var(--muted); font-size: 11px; margin-top: 5px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .modal-actions button {
+    border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  #settings-close { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+  #settings-save { background: var(--accent); color: #1a0f02; }
+  #settings-save:disabled { opacity: 0.5; cursor: default; }
+
+  /* ---------- toasts ---------- */
+  #toast-stack {
+    position: fixed; top: 16px; right: 16px; z-index: 100;
+    display: flex; flex-direction: column; gap: 8px; width: 320px;
+  }
+  .toast {
+    background: var(--panel-solid);
+    border: 1px solid var(--border-strong);
+    border-left: 3px solid var(--accent-2);
+    border-radius: 9px;
+    padding: 10px 12px;
+    box-shadow: var(--shadow);
+    font-size: 13px;
+    animation: toast-in 0.2s ease;
+  }
+  .toast.success { border-left-color: var(--success); }
+  .toast.error { border-left-color: var(--danger); }
+  .toast .toast-title { font-weight: 700; margin-bottom: 2px; }
+  .toast.fading { animation: toast-out 0.2s ease forwards; }
+  @keyframes toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes toast-out { to { opacity: 0; transform: translateX(20px); } }
 </style>
 </head>
 <body>
-  <header>
-    <h1>Otto</h1>
-    <span>personal automation assistant</span>
-  </header>
+  <div id="app">
+    <header class="toolbar" data-tauri-drag-region>
+      <div class="brand">
+        <img src="assets/otto-mark.png" alt="" />
+        <span>Otto</span>
+        <span class="tagline">autopilot</span>
+      </div>
 
-  <main>
-    <section class="panel" id="panel-prs">
-      <h2>Pull Requests</h2>
-      <div class="empty">Ask "show me my open PRs" below.</div>
-    </section>
-    <section class="panel" id="panel-deployments">
-      <h2>Deployments</h2>
-      <div class="empty">Deploy monitoring isn't wired up yet.</div>
-    </section>
-    <section class="panel" id="panel-meetings">
-      <h2>Upcoming Meetings</h2>
-      <div class="empty">Calendar integration isn't wired up yet.</div>
-    </section>
-  </main>
+      <nav class="tabs">
+        <button class="tab active" data-tab="dashboard">Dashboard</button>
+        <button class="tab" data-tab="history">History</button>
+      </nav>
 
-  <footer>
-    <div id="transcript"></div>
-    <form id="command-form">
-      <button type="button" id="mic-button" title="Hold to talk">&#127908;</button>
-      <input id="command-input" type="text" autocomplete="off"
-        placeholder="Tell Otto what to do - e.g. &quot;show me my open PRs&quot;" />
-      <button type="submit">Run</button>
-    </form>
-    <label id="voice-options">
-      <input type="checkbox" id="talk-back-toggle" />
-      Talk back (speak replies aloud)
-    </label>
-  </footer>
+      <div class="toolbar-actions">
+        <div class="status-pills">
+          <span class="pill" id="pill-anthropic"><span class="dot"></span>Claude</span>
+          <span class="pill" id="pill-github"><span class="dot"></span>GitHub</span>
+        </div>
+        <button class="icon-button" id="settings-button" title="Settings">&#9881;</button>
+      </div>
+    </header>
+
+    <section class="view active" id="view-dashboard">
+      <main class="dashboard">
+        <section class="panel" id="panel-prs">
+          <h2>Pull Requests</h2>
+          <div class="empty">Ask "show me my open PRs" below.</div>
+        </section>
+        <section class="panel" id="panel-deployments">
+          <h2>Deployments</h2>
+          <div class="empty">Deploy monitoring isn't wired up yet.</div>
+        </section>
+        <section class="panel" id="panel-meetings">
+          <h2>Upcoming Meetings</h2>
+          <div class="empty">Calendar integration isn't wired up yet.</div>
+        </section>
+      </main>
+
+      <footer class="command">
+        <div id="transcript"></div>
+        <div class="thinking" id="thinking-indicator"><span class="orb"></span> Otto is working on it...</div>
+        <form id="command-form">
+          <button type="button" id="mic-button" title="Hold to talk">&#127908;</button>
+          <input id="command-input" type="text" autocomplete="off"
+            placeholder="Tell Otto what to do - e.g. &quot;show me my open PRs&quot;" />
+          <button type="submit">Run</button>
+        </form>
+        <label id="voice-options">
+          <input type="checkbox" id="talk-back-toggle" />
+          Talk back (speak replies aloud)
+        </label>
+      </footer>
+    </section>
+
+    <section class="view" id="view-history">
+      <main class="history" id="history-list">
+        <div class="history-empty">Loading history...</div>
+      </main>
+    </section>
+  </div>
+
+  <div class="overlay hidden" id="settings-overlay">
+    <div class="modal">
+      <h2>Settings</h2>
+      <div class="sub">Credentials are stored in your OS keychain - never in a plaintext file.</div>
+
+      <div class="field">
+        <label>Claude API key <span class="field-status" id="status-anthropic">not set</span></label>
+        <input type="password" id="input-anthropic" placeholder="sk-ant-..." autocomplete="off" />
+        <div class="hint">From console.anthropic.com. Leave blank to keep the current key.</div>
+      </div>
+
+      <div class="field">
+        <label>GitHub token <span class="field-status" id="status-github">not set</span></label>
+        <input type="password" id="input-github" placeholder="ghp_... or gho_..." autocomplete="off" />
+        <div class="hint">Needs repo access to read PRs/checks and open PRs. Leave blank to keep the current token.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" id="settings-close">Close</button>
+        <button type="button" id="settings-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-stack"></div>
 
   <script>
-    const form = document.getElementById("command-form");
-    const input = document.getElementById("command-input");
-    const transcript = document.getElementById("transcript");
-    const prPanel = document.getElementById("panel-prs");
+    const invoke = (...args) => window.__TAURI__.core.invoke(...args);
 
-    function renderPullRequests(pullRequests, repo) {
-      if (!pullRequests || pullRequests.length === 0) {
-        prPanel.innerHTML = `<h2>Pull Requests</h2><div class="empty">No open pull requests${repo ? ` in ${repo}` : ""}.</div>`;
-        return;
-      }
-      const items = pullRequests
-        .map(
-          (pr) => `<li>
-            <div class="title">#${pr.number} ${pr.draft ? "[draft] " : ""}${escapeHtml(pr.title ?? "")}</div>
-            <div class="meta">${escapeHtml(pr.head ?? "")} -> ${escapeHtml(pr.base ?? "")} - by ${escapeHtml(pr.author ?? "unknown")}</div>
-          </li>`
-        )
-        .join("");
-      prPanel.innerHTML = `<h2>Pull Requests</h2><ul>${items}</ul>`;
+    // ---------- toasts ----------
+    const toastStack = document.getElementById("toast-stack");
+    function toast(title, body, kind = "info", timeout = 5000) {
+      const el = document.createElement("div");
+      el.className = `toast ${kind}`;
+      el.innerHTML = `<div class="toast-title">${escapeHtml(title)}</div>${body ? `<div>${escapeHtml(body)}</div>` : ""}`;
+      toastStack.prepend(el);
+      setTimeout(() => {
+        el.classList.add("fading");
+        setTimeout(() => el.remove(), 200);
+      }, timeout);
     }
 
     function escapeHtml(value) {
@@ -202,6 +444,107 @@
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;");
+    }
+
+    // ---------- tabs ----------
+    const tabs = document.querySelectorAll("nav.tabs button");
+    const views = { dashboard: document.getElementById("view-dashboard"), history: document.getElementById("view-history") };
+    tabs.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        tabs.forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        Object.values(views).forEach((v) => v.classList.remove("active"));
+        views[btn.dataset.tab].classList.add("active");
+        if (btn.dataset.tab === "history") loadHistory();
+      });
+    });
+
+    // ---------- credential status pills + settings modal ----------
+    const settingsOverlay = document.getElementById("settings-overlay");
+    const pillAnthropic = document.getElementById("pill-anthropic");
+    const pillGithub = document.getElementById("pill-github");
+    const statusAnthropic = document.getElementById("status-anthropic");
+    const statusGithub = document.getElementById("status-github");
+
+    function applyPill(el, ok, label) {
+      el.classList.toggle("ok", ok);
+      el.classList.toggle("warn", !ok);
+      el.innerHTML = `<span class="dot"></span>${label}`;
+    }
+
+    async function refreshCredentialStatus() {
+      try {
+        const status = await invoke("get_credential_status");
+        applyPill(pillAnthropic, status.anthropic, "Claude");
+        applyPill(pillGithub, status.github, "GitHub");
+        statusAnthropic.textContent = status.anthropic ? "configured" : "not set";
+        statusAnthropic.classList.toggle("ok", status.anthropic);
+        statusGithub.textContent = status.github ? "configured" : "not set";
+        statusGithub.classList.toggle("ok", status.github);
+        return status;
+      } catch (err) {
+        console.warn("failed to read credential status:", err);
+      }
+    }
+
+    function openSettings() {
+      settingsOverlay.classList.remove("hidden");
+      refreshCredentialStatus();
+    }
+    function closeSettings() {
+      settingsOverlay.classList.add("hidden");
+      document.getElementById("input-anthropic").value = "";
+      document.getElementById("input-github").value = "";
+    }
+
+    document.getElementById("settings-button").addEventListener("click", openSettings);
+    document.getElementById("settings-close").addEventListener("click", closeSettings);
+    settingsOverlay.addEventListener("click", (e) => { if (e.target === settingsOverlay) closeSettings(); });
+
+    document.getElementById("settings-save").addEventListener("click", async () => {
+      const anthropic = document.getElementById("input-anthropic").value.trim();
+      const github = document.getElementById("input-github").value.trim();
+      const saveButton = document.getElementById("settings-save");
+      if (!anthropic && !github) { closeSettings(); return; }
+
+      saveButton.disabled = true;
+      try {
+        if (anthropic) await invoke("set_credential", { key: "anthropic-api-key", value: anthropic });
+        if (github) await invoke("set_credential", { key: "github-token", value: github });
+        toast("Settings saved", "Otto picked up the new credentials immediately.", "success");
+        closeSettings();
+        await refreshCredentialStatus();
+      } catch (err) {
+        toast("Couldn't save settings", typeof err === "string" ? err : JSON.stringify(err), "error");
+      } finally {
+        saveButton.disabled = false;
+      }
+    });
+
+    // Native "Settings..." menu item (File menu) emits this event.
+    window.__TAURI__.event.listen("open-settings", openSettings);
+
+    // ---------- dashboard / command bar ----------
+    const form = document.getElementById("command-form");
+    const input = document.getElementById("command-input");
+    const transcript = document.getElementById("transcript");
+    const prPanel = document.getElementById("panel-prs");
+    const thinking = document.getElementById("thinking-indicator");
+
+    function renderPullRequests(pullRequests, repo) {
+      if (!pullRequests || pullRequests.length === 0) {
+        prPanel.innerHTML = `<h2>Pull Requests</h2><div class="empty">No open pull requests${repo ? ` in ${escapeHtml(repo)}` : ""}.</div>`;
+        return;
+      }
+      const items = pullRequests
+        .map(
+          (pr) => `<li>
+            <div class="title">${pr.draft ? '<span class="badge">draft</span>' : ""}#${pr.number} ${escapeHtml(pr.title ?? "")}</div>
+            <div class="meta">${escapeHtml(pr.head ?? "")} &rarr; ${escapeHtml(pr.base ?? "")} &middot; by ${escapeHtml(pr.author ?? "unknown")}</div>
+          </li>`
+        )
+        .join("");
+      prPanel.innerHTML = `<h2>Pull Requests</h2><ul>${items}</ul>`;
     }
 
     function addEntry(prompt, turn, error) {
@@ -221,7 +564,7 @@
       (turn?.steps ?? []).forEach((step) => {
         const stepEl = document.createElement("div");
         stepEl.className = "step";
-        stepEl.textContent = `[${step.tool_name}] ${step.summary}`;
+        stepEl.textContent = `${step.tool_name} - ${step.summary}`;
         entry.appendChild(stepEl);
 
         if (step.tool_name === "github_list_open_prs") {
@@ -229,14 +572,20 @@
         }
       });
 
-      transcript.prepend(entry);
+      transcript.appendChild(entry);
+
+      if (error) {
+        toast("Command failed", error, "error");
+      } else {
+        toast("Otto replied", turn.reply ? (turn.reply.length > 120 ? turn.reply.slice(0, 117) + "..." : turn.reply) : "Done.", "success", 4000);
+      }
     }
 
     async function runCommand(text) {
-      const invoke = window.__TAURI__.core.invoke;
       const submitButton = form.querySelector("button[type=submit]");
       submitButton.disabled = true;
       input.disabled = true;
+      thinking.classList.add("active");
 
       try {
         const turn = await invoke("run_command", { input: text });
@@ -249,6 +598,7 @@
       } finally {
         submitButton.disabled = false;
         input.disabled = false;
+        thinking.classList.remove("active");
         input.value = "";
         input.focus();
       }
@@ -272,7 +622,7 @@
     async function beginRecording() {
       if (recording) return;
       try {
-        await window.__TAURI__.core.invoke("start_recording");
+        await invoke("start_recording");
         recording = true;
         micButton.classList.add("recording");
       } catch (err) {
@@ -286,7 +636,7 @@
       micButton.classList.remove("recording");
       micButton.disabled = true;
       try {
-        const text = await window.__TAURI__.core.invoke("stop_recording");
+        const text = await invoke("stop_recording");
         if (text && text.trim()) {
           input.value = text.trim();
           await runCommand(text.trim());
@@ -303,6 +653,58 @@
     micButton.addEventListener("mouseup", endRecording);
     micButton.addEventListener("mouseleave", endRecording);
     micButton.addEventListener("touchend", endRecording);
+
+    // ---------- history view ----------
+    const historyList = document.getElementById("history-list");
+    let historyLoaded = false;
+
+    function formatTimestamp(iso) {
+      try {
+        return new Date(iso).toLocaleString();
+      } catch {
+        return iso;
+      }
+    }
+
+    async function loadHistory() {
+      try {
+        const entries = await invoke("list_history", { limit: 100 });
+        if (!entries || entries.length === 0) {
+          historyList.innerHTML = `<div class="history-empty">No commands recorded yet - run something from the Dashboard tab.</div>`;
+          return;
+        }
+        historyList.innerHTML = entries
+          .map((entry) => {
+            const steps = (entry.steps ?? [])
+              .map((s) => `<span>${escapeHtml(s.tool_name)}</span>`)
+              .join("");
+            return `<div class="history-entry">
+              <div class="row">
+                <div class="prompt">${escapeHtml(entry.input)}</div>
+                <time>${formatTimestamp(entry.timestamp)}</time>
+              </div>
+              <div class="reply">${escapeHtml(entry.reply || "(no reply text)")}</div>
+              ${steps ? `<div class="steps">${steps}</div>` : ""}
+            </div>`;
+          })
+          .join("");
+        historyLoaded = true;
+      } catch (err) {
+        historyList.innerHTML = `<div class="history-empty">Couldn't load history: ${escapeHtml(typeof err === "string" ? err : JSON.stringify(err))}</div>`;
+      }
+    }
+
+    // ---------- startup ----------
+    refreshCredentialStatus().then((status) => {
+      if (status && (!status.anthropic || !status.github)) {
+        toast(
+          "Finish setting up Otto",
+          !status.anthropic ? "Add your Claude API key in Settings to get started." : "Add a GitHub token in Settings to enable the GitHub skill.",
+          "info",
+          8000
+        );
+      }
+    });
   </script>
 </body>
 </html>

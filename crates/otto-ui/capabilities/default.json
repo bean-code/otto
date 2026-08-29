@@ -8,6 +8,9 @@
     "allow-run-command",
     "allow-start-recording",
     "allow-stop-recording",
-    "allow-speak"
+    "allow-speak",
+    "allow-list-history",
+    "allow-get-credential-status",
+    "allow-set-credential"
   ]
 }
