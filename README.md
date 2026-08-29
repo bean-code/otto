@@ -1,21 +1,61 @@
+<p align="center">
+  <img src="docs/otto-banner.png" alt="Otto - autopilot for your engineering workflow" width="720" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/bean-code/otto/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/bean-code/otto/actions/workflows/ci.yml/badge.svg" /></a>
+  <img alt="platforms" src="https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-6ea8fe" />
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-e8a33d" />
+</p>
+
 # Otto
 
-Otto is a Jarvis-style personal automation assistant: a natural-language command bar (desktop app or CLI) that
-dispatches to typed integrations - GitHub PRs today, deployments and calendar management to follow - via the
-Claude API.
+Otto is a Jarvis-style personal automation assistant for a working engineer: a natural-language command bar - as
+a desktop app or a CLI, whichever fits the moment - that turns a plain-English request into real, typed actions
+against the tools you actually use, instead of another chat window you have to translate your intent into
+manually. Say "show me my open PRs" and Otto doesn't describe how it would check; it checks, via GitHub's real
+API, and hands back the actual list. That's the whole design premise: every capability is a typed `Skill` with a
+real implementation behind it, Claude decides *which* one a request needs, and the result you get back is data
+your dashboard or terminal can render, not just prose to read.
+
+Today that means GitHub - list open PRs, check CI/check-run status, open a PR from a branch - plus a first pass
+at the things around the edges of "get my engineering work done": voice in and out, a working-hours schedule so
+Otto isn't always-on, and a small daily nudge about your own PR habits. Deployments and calendar management are
+scaffolded and named in the roadmap below, not implemented yet - see the crate table for exactly what's real
+versus staged.
+
+## Highlights
+
+- **GitHub, for real.** Open PRs, CI status, opening a PR from a branch - not a description of what it would do,
+  an actual `octocrab` call against the GitHub API.
+- **One agent loop, any provider.** The Claude round-trip and tool-calling loop are delegated to
+  [`llmprism`](https://crates.io/crates/llmprism) instead of hand-rolled - swap providers or add middleware
+  without touching `otto-core` or any skill.
+- **A persona that isn't generic.** The system prompt carries who you are (see `otto-core::DEFAULT_PERSONA`), so
+  replies land at the altitude of a peer conversation, not a first-time-user tutorial.
+- **Voice in, voice back - fully local.** Push-to-talk mic capture, `whisper.cpp` transcription, OS-native
+  text-to-speech for replies. Nothing audio-related leaves the machine; no cloud STT/TTS vendor in the loop.
+- **A schedule, not an always-on process.** Tell Otto its working hours; it turns itself off outside them instead
+  of sitting there listening around the clock.
+- **A quiet nudge toward getting better.** A background digest looks at your own recent PR activity and
+  surfaces one grounded, specific observation - not generic advice, not a leaderboard.
+- **Cross-platform by construction.** CI builds, tests, and smoke-runs the whole workspace on Linux, macOS, and
+  Windows on every push - see the badge above.
 
 ## How it's put together
 
-A Cargo workspace of small crates:
+A Cargo workspace of small, single-purpose crates rather than one monolith - each skill is independently
+testable and the orchestration layer (`otto-core`) never needs to know a skill's internals, only its `Skill`
+trait surface:
 
 | Crate | What it is |
 |---|---|
-| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name), `AgentLoop`, `CredentialStore` (OS keychain), `HistoryStore` (local JSONL log). |
+| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name), `AgentLoop`, `CredentialStore` (OS keychain), `HistoryStore` (local JSONL log), `ActiveWindow` (working-hours scheduling), the growth-digest job. |
 | `otto-skill-github` | **Fully working.** List open PRs, check CI/check-run status, open a PR from a branch. Built on [`octocrab`](https://docs.rs/octocrab). |
 | `otto-skill-deploy` | Scaffolded (compiles, tools defined) but not yet implemented - intended for triggering/monitoring GitHub Actions workflow runs. |
 | `otto-skill-calendar` | Scaffolded, not yet implemented - intended for Google Calendar (picked over Outlook as the starting provider). |
 | `otto-skill-notify` | **Fully working.** Desktop notifications via [`notify-rust`](https://docs.rs/notify-rust). |
-| `otto-voice` | **Fully implemented, compiler-unverified** (see Status). Local, offline voice I/O: mic capture (`cpal`) + speech-to-text (`whisper.cpp` via `whisper-rs`) for prompts, OS-native text-to-speech (`tts`) for talk-back. Nothing audio-related ever leaves the machine. |
+| `otto-voice` | **Fully working.** Local, offline voice I/O: mic capture (`cpal`) + speech-to-text (`whisper.cpp` via `whisper-rs`) for prompts, OS-native text-to-speech (`tts`) for talk-back. Nothing audio-related ever leaves the machine. |
 | `otto-ui` | The Tauri desktop app: a dashboard (PR / deployment / meeting panels), a command bar, push-to-talk voice input, and talk-back. |
 | `otto-cli` | Thin CLI (`otto "show me my open PRs"`) driving the same `AgentLoop`. |
 
@@ -60,12 +100,21 @@ store.set("github-token", "ghp_...").await?;
 
 **No keychain daemon available (headless Linux/WSL with no Secret Service running)?** A keychain miss falls back to
 reading `OTTO_<KEY>` from the process environment (dashes become underscores), so for local dev you can instead
-export:
+export them, or use the `.env` file described next.
+
+### `.env` for local development
+
+`otto-cli` and `otto-ui` both load a `.env` file (via [`dotenvy`](https://docs.rs/dotenvy), searched from the
+current directory upward) as the very first thing they do, before anything reads an environment variable - so it
+covers credentials *and* every other `OTTO_*` setting below (model, persona, schedule, voice, growth interval).
+Copy the template and fill it in:
 
 ```sh
-export OTTO_ANTHROPIC_API_KEY=sk-ant-...
-export OTTO_GITHUB_TOKEN=ghp_...
+cp .env.example .env
 ```
+
+`.env` is gitignored - it's local-only and never committed. `.env.example` is the committed reference for every
+variable Otto reads and what each one defaults to; keep it in sync if you add a new one.
 
 ## Running it
 
@@ -82,7 +131,8 @@ name one. `--model` (or `OTTO_MODEL`) overrides the Claude model; defaults to `c
 ### Desktop app (Tauri)
 
 The Linux build needs several system dev packages first (already present on macOS/Windows via the OS webview,
-OS speech engine, and OS audio stack respectively):
+OS speech engine, and OS audio stack respectively - CI installs exactly this list on `ubuntu-latest` and nothing
+extra on the other two platforms):
 
 ```sh
 sudo apt-get install -y \
@@ -170,22 +220,41 @@ Typing `show me my open PRs` in either the CLI or the command bar:
    carries the structured data (used by the UI to render the PR panel) alongside the summary.
 4. The turn is appended to `history.jsonl` in the OS data directory (`~/.local/share/otto` on Linux).
 
+None of this is provider-specific plumbing you'd have to rewrite for a different model or a different skill: step
+1 comes from whatever's registered in `SkillRegistry`, step 2 is `llmprism`'s tool loop calling back into that
+same registry, and step 3's shape (`reply` + structured `steps`) is what every skill's result looks like, not
+something special-cased for GitHub.
+
+## Branding
+
+The logo and banner in `docs/` (`otto-banner.{png,svg}`, `otto-logo-mark.{png,svg}`) are the source design assets
+- an artificial-horizon mark (amber "sky" over navy "ground", the way an autopilot's attitude indicator reads),
+which is also what actually ships as the desktop app's icon: `crates/otto-ui/icons/icon.png` (used by Tauri's
+`generate_context!()` as the runtime window icon on every platform) and `crates/otto-ui/icons/icon.ico`
+(Windows-only - a separate multi-resolution 256/64/32/16 file `tauri-build` needs specifically to embed as the
+`.exe`'s Windows resource icon) are both generated straight from `docs/otto-logo-mark.png`. If you update the
+source mark, regenerate both rather than editing them by hand.
+
 ## CI
 
 `.github/workflows/ci.yml` builds, tests, and smoke-runs the whole workspace on Linux, macOS, and Windows on every
-push/PR to `main`. "Smoke-runs" means `otto-cli --help` specifically - a real functional run needs live Claude/
-GitHub credentials the workflow doesn't have, so this only proves the built binary actually starts on each
-platform (clap's `--help` exits before anything needs a credential). `otto-ui` isn't launched in CI: unlike the
-CLI it has no credential-free short-circuit (it builds its full `AgentLoop` before a window ever opens) and would
-also need a virtual display on Linux - both build-verified via the main build step, just not launched.
+push/PR to `main` - see the badge at the top of this file for the current status. "Smoke-runs" means
+`otto-cli --help` specifically - a real functional run needs live Claude/GitHub credentials the workflow doesn't
+have, so this only proves the built binary actually starts on each platform (clap's `--help` exits before anything
+needs a credential). `otto-ui` isn't launched in CI: unlike the CLI it has no credential-free short-circuit (it
+builds its full `AgentLoop` before a window ever opens) and would also need a virtual display on Linux - both
+build-verified via the main build step, just not launched.
 
 ## Status
 
-`cargo check --workspace` is clean - every crate (`otto-core`, all four `otto-skill-*` crates, `otto-voice`,
-`otto-ui`, `otto-cli`) compiles, on Linux with the apt packages above installed.
+`cargo check --workspace` is clean on Linux (with the apt packages above installed), and CI confirms the same
+build + test + run sequence passes on macOS and Windows too. The one platform-specific bug CI caught that a
+Linux-only check couldn't: Windows needs `crates/otto-ui/icons/icon.ico` specifically (`tauri-build` panics
+without it - "required for generating a Windows Resource file"), which is a separate requirement from the
+`icon.png` `generate_context!()` needs on every platform; see the Branding section above for where both come
+from now.
 
-One gotcha if you ever regenerate or delete `crates/otto-ui/icons/icon.png`: Tauri's `generate_context!()` macro
-requires a real RGBA PNG there unconditionally (not just when bundling) - it's the default window icon on every
-platform, decoded and embedded at compile time, and panics with an "icon not found" / "icon is not RGBA" proc-macro
-error otherwise. The checked-in icon is a placeholder (a solid accent-blue circle); swap it for real artwork
-whenever you like, just keep it PNG + RGBA (8-bit, color type 6).
+Known gaps, tracked rather than hidden: `otto-skill-deploy` and `otto-skill-calendar` are scaffolded but not
+wired up, the dashboard frontend is plain HTML/JS rather than the originally-requested Dioxus (see the Desktop
+app section for why and how to swap it in), and the growth digest only looks at open PRs on one repo. None of
+these are blocked on anything - they're the natural next slice of work.

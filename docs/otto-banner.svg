@@ -1,0 +1,23 @@
+<svg viewBox="0 0 1200 300" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="300" fill="#101319"/>
+
+  <!-- mark -->
+  <g>
+    <circle cx="190" cy="150" r="88" fill="#212840"/>
+    <path d="M102,150 A88,88 0 0 1 278,150 Z" fill="#E8A33D"/>
+    <rect x="102" y="144" width="176" height="12" fill="#F3F1EA"/>
+    <rect x="130" y="144" width="26" height="12" fill="#101319"/>
+    <rect x="224" y="144" width="26" height="12" fill="#101319"/>
+    <path d="M190,128 L201,150 L190,172 L179,150 Z" fill="#101319"/>
+    <circle cx="190" cy="150" r="88" fill="none" stroke="#F3F1EA" stroke-width="6"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="340" y="178" font-family="'Space Grotesk', 'Segoe UI', Arial, sans-serif" font-size="92" font-weight="700" letter-spacing="6" fill="#F3F1EA">OTTO</text>
+
+  <!-- divider -->
+  <rect x="342" y="196" width="140" height="4" fill="#E8A33D"/>
+
+  <!-- tagline -->
+  <text x="342" y="228" font-family="'Space Grotesk', 'Segoe UI', Arial, sans-serif" font-size="21" font-weight="500" letter-spacing="4" fill="#6C89A8">AUTOPILOT FOR YOUR ENGINEERING WORKFLOW</text>
+</svg>
