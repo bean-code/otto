@@ -6,9 +6,16 @@ license.workspace = true
 
 [dependencies]
 otto-core = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
+reqwest = { workspace = true }
+# `webbrowser` (not a Tauri-specific opener) since otto-cli has no Tauri
+# dependency and needs the exact same connect flow as otto-ui.
+webbrowser = "1.2"
+sha2 = "0.11"
+base64 = "0.23"
+rand = "0.10"

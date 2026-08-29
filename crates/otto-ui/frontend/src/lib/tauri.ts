@@ -66,3 +66,13 @@ export function stopRecording(): Promise<string> {
 export function speak(text: string): Promise<void> {
   return invoke<void>("speak", { text });
 }
+
+/**
+ * Runs the Google Calendar OAuth2/PKCE connect flow: opens the consent
+ * screen in the user's default browser and waits for it to complete.
+ * Requires a Google Calendar Client ID to already be saved via
+ * `setCredential`.
+ */
+export function connectGoogleCalendar(): Promise<void> {
+  return invoke<void>("connect_google_calendar_cmd");
+}

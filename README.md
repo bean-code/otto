@@ -71,7 +71,7 @@ trait surface:
 | `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name, groups by skill for the Skills tab), `AgentLoop`, `CredentialStore` (OS keychain), `ActivityLog`/`SqliteStore` (local SQLite - queryable, not a flat log; also holds small persisted settings like the selected model), `ActiveWindow` (working-hours scheduling), `PROVIDER_CATALOG`/`MODEL_CATALOG`, the growth-digest job. |
 | `otto-skill-github` | **Fully working.** List open PRs, check CI/check-run status, open a PR from a branch. Built on [`octocrab`](https://docs.rs/octocrab). |
 | `otto-skill-deploy` | **Fully working.** Trigger a GitHub Actions workflow run and check the status of its latest run, via [`octocrab`](https://docs.rs/octocrab) - reuses the same GitHub token as `otto-skill-github`. |
-| `otto-skill-calendar` | Scaffolded, not yet implemented - intended for Google Calendar (picked over Outlook as the starting provider). |
+| `otto-skill-calendar` | **Fully working.** List upcoming meetings and flag overlapping ones, against Google Calendar via OAuth2 (PKCE) + Calendar API v3. See "Google Calendar setup" below. |
 | `otto-skill-notify` | **Fully working.** Desktop notifications via [`notify-rust`](https://docs.rs/notify-rust). |
 | `otto-voice` | **Fully working.** Local, offline voice I/O: mic capture (`cpal`) + speech-to-text (`whisper.cpp` via `whisper-rs`) for prompts, OS-native text-to-speech (`tts`) for talk-back. Nothing audio-related ever leaves the machine. |
 | `otto-ui` | The Tauri desktop app: a dashboard (PR / deployment / meeting panels), a command bar, push-to-talk voice input, and talk-back. |
@@ -129,19 +129,42 @@ name - `"{provider}-api-key"` (`anthropic-api-key`, `openai-api-key`, `gemini-ap
 `otto_core::credential_key`) - plus one more that isn't an LLM provider at all:
 
 - `github-token` - a GitHub personal access token (needs `repo` scope for private repos; `public_repo` is enough
-  for public ones) with permission to read PRs/checks and open PRs on the repos you point it at.
+  for public ones, plus `workflow` if you want `otto-skill-deploy`'s trigger/status tools) with permission to
+  read PRs/checks and open PRs on the repos you point it at.
+- `google-calendar-client-id` - see "Google Calendar setup" below; not an API key you paste and forget, it's
+  paired with a one-time OAuth connect step.
 
 You only need to set a key for the provider(s) you actually plan to use - Ollama needs none at all (it's a local
 server, always available once its Cargo feature is compiled in; if nothing's listening on `localhost`, a request
 against it just fails at call time, the same as any other unreachable server).
 
-**In `otto-ui`, the easiest way is Settings** - the gear icon in the toolbar, or "Otto > Settings..." in the
-native menu bar. It lists every provider with a status ("configured"/"not set") and a password field each; paste
-a key in and hit Save, and it's written straight to the keychain and picked up immediately (the app rebuilds its
-provider registry on save - no restart needed). The toolbar's status pills show at a glance whether the
-*currently selected* model's provider (and GitHub) are configured. `otto-ui` doesn't require any key to exist
-before it'll open - launch it with nothing configured and it starts fine; `run_command` just replies with a clear
-"add your \<Provider\> API key in Settings" instead of a working answer until you do.
+**In `otto-ui`, the easiest way is Settings** - the "Settings" item at the bottom of the sidebar, or "Otto >
+Settings..." in the native menu bar. It lists every provider with a status ("configured"/"not set") and a
+password field each; paste a key in and hit Save, and it's written straight to the keychain and picked up
+immediately (the app rebuilds its provider registry on save - no restart needed). The toolbar's status pills
+show at a glance whether the *currently selected* model's provider (and GitHub) are configured. `otto-ui`
+doesn't require any key to exist before it'll open - launch it with nothing configured and it starts fine;
+`run_command` just replies with a clear "add your \<Provider\> API key in Settings" instead of a working answer
+until you do.
+
+### Google Calendar setup
+
+Unlike every other credential, this one needs a one-time OAuth client of your own - Google doesn't let Otto ship
+a shared one safely, and this way nothing about your calendar ever goes through infrastructure Otto controls:
+
+1. In the [Google Cloud Console](https://console.cloud.google.com), create a project (or use an existing one)
+   and enable the **Google Calendar API**.
+2. Under **APIs & Services > Credentials**, create an **OAuth client ID** of type **Desktop app** (not "Web
+   application" - the Desktop type is what lets the flow below skip a client secret entirely; see
+   `otto-skill-calendar`'s doc comment for why).
+3. Copy the **Client ID** it gives you and paste it into Settings under "Google Calendar Client ID", same as any
+   other credential.
+4. Click **Connect** on the "Google Calendar" row right below it. This opens the Google consent screen in your
+   default browser (a local, OS-assigned loopback port catches the redirect - nothing is exposed to the network);
+   approve it, and the tab tells you to close it. Otto now has a refresh token in the keychain and refreshes its
+   access token automatically as needed - you don't reconnect again unless you revoke access.
+
+Read-only (`calendar.events.readonly`) - Otto can list and read your events, never create/edit/delete them.
 
 For `otto-cli`, or to script it, set them with any keychain tool that writes to the `otto-assistant` service, or
 from Rust:
@@ -410,7 +433,7 @@ from now.
 commands with growth-digest/schedule events in one feed, and a settings round-trip/overwrite - all against a
 temp on-disk database, not mocks.
 
-Known gaps, tracked rather than hidden: `otto-skill-calendar` is scaffolded but not wired up (it needs a real
-decision on auth - OAuth vs. a simpler read-only ICS feed - before it's worth building; see that crate's doc
-comment), and the growth digest only looks at open PRs on one repo. None of these are blocked on anything -
-they're the natural next slice of work.
+Known gaps, tracked rather than hidden: the growth digest only looks at open PRs on one repo, and
+`otto-skill-calendar`'s connect flow is only reachable from `otto-ui`'s Settings (no `otto-cli`-native OAuth
+flow) - `otto-cli` picks up the connection automatically afterward since it's the same shared keychain, but
+can't initiate it itself. Neither is blocked on anything - they're the natural next slice of work.

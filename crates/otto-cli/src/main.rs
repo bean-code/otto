@@ -6,10 +6,14 @@ use llmprism::providers::gemini::GeminiProvider;
 use llmprism::providers::ollama::OllamaProvider;
 use llmprism::providers::openai::OpenAiProvider;
 use llmprism::providers::openai_compatible::{
-    DeepSeekProvider, GroqProvider, MistralProvider, OpenRouterProvider, PerplexityProvider, XaiProvider, ZaiProvider,
+    DeepSeekProvider, GroqProvider, MistralProvider, OpenRouterProvider, PerplexityProvider,
+    XaiProvider, ZaiProvider,
 };
 use llmprism::Registry as LlmRegistry;
-use otto_core::{credential_key, AgentLoop, CredentialStore, KeyringStore, SkillRegistry, SqliteStore, DEFAULT_PERSONA};
+use otto_core::{
+    credential_key, AgentLoop, CredentialStore, KeyringStore, SkillRegistry, SqliteStore,
+    DEFAULT_PERSONA,
+};
 use otto_skill_calendar::CalendarSkill;
 use otto_skill_deploy::DeploySkill;
 use otto_skill_github::GithubSkill;
@@ -61,7 +65,9 @@ fn register_provider(llm: &mut LlmRegistry, id: &str, api_key: String) {
         "perplexity" => llm.register(id, PerplexityProvider::new(api_key)),
         "zai" => llm.register(id, ZaiProvider::new(api_key)),
         "ollama" => llm.register(id, OllamaProvider::new()),
-        other => tracing::warn!("no llmprism provider wired up for '{other}' - update register_provider"),
+        other => {
+            tracing::warn!("no llmprism provider wired up for '{other}' - update register_provider")
+        }
     }
 }
 
@@ -72,7 +78,9 @@ async fn main() -> anyhow::Result<()> {
     // which reads `OTTO_*` env vars for its `env = "..."` fields.
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     let cli = Cli::parse();
     let input = cli.input.join(" ");
@@ -86,11 +94,17 @@ async fn main() -> anyhow::Result<()> {
     // picking a model in the app is also what the CLI uses by default.
     let provider = match cli.provider {
         Some(p) => p,
-        None => store.get_setting(MODEL_PROVIDER_SETTING_KEY).await?.unwrap_or_else(|| DEFAULT_PROVIDER.to_string()),
+        None => store
+            .get_setting(MODEL_PROVIDER_SETTING_KEY)
+            .await?
+            .unwrap_or_else(|| DEFAULT_PROVIDER.to_string()),
     };
     let model = match cli.model {
         Some(m) => m,
-        None => store.get_setting(MODEL_ID_SETTING_KEY).await?.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+        None => store
+            .get_setting(MODEL_ID_SETTING_KEY)
+            .await?
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
     };
 
     let provider_info = otto_core::provider_info(&provider)
@@ -105,13 +119,23 @@ async fn main() -> anyhow::Result<()> {
     register_provider(&mut llm, provider_info.id, api_key);
 
     let mut registry = SkillRegistry::new();
-    registry.register(Arc::new(GithubSkill::new(credentials.clone(), cli.repo.clone())));
+    registry.register(Arc::new(GithubSkill::new(
+        credentials.clone(),
+        cli.repo.clone(),
+    )));
     registry.register(Arc::new(DeploySkill::new(credentials.clone(), cli.repo)));
-    registry.register(Arc::new(CalendarSkill::new()));
+    registry.register(Arc::new(CalendarSkill::new(credentials.clone())));
     registry.register(Arc::new(NotifySkill::new()));
 
     let persona = std::env::var("OTTO_PERSONA").unwrap_or_else(|_| DEFAULT_PERSONA.to_string());
-    let agent = AgentLoop::new(llm, provider_info.id, model, persona, Arc::new(registry), store);
+    let agent = AgentLoop::new(
+        llm,
+        provider_info.id,
+        model,
+        persona,
+        Arc::new(registry),
+        store,
+    );
 
     let turn = agent.run(&input).await?;
 

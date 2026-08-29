@@ -17,6 +17,7 @@
     "allow-list-skills",
     "allow-get-greeting-name",
     "allow-get-credential-status",
-    "allow-set-credential"
+    "allow-set-credential",
+    "allow-connect-google-calendar-cmd"
   ]
 }

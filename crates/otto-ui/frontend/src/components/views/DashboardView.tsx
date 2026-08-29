@@ -129,7 +129,9 @@ export function DashboardView({
               <Icon name="calendar" className="h-5 w-5" />
             </div>
             <h3 className="m-0 text-sm font-bold">Upcoming Meetings</h3>
-            <p className="m-0 flex-1 text-[12.5px] leading-relaxed text-muted">Calendar integration isn't wired up yet.</p>
+            <p className="m-0 flex-1 text-[12.5px] leading-relaxed text-muted">
+              Ask &quot;check my upcoming meetings&quot; below (connect Google Calendar in Settings first).
+            </p>
           </section>
         </main>
       </div>

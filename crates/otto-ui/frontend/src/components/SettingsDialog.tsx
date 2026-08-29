@@ -5,9 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { setCredential } from "@/lib/tauri";
+import { connectGoogleCalendar, setCredential } from "@/lib/tauri";
 import type { CredentialStatus } from "@/lib/types";
 import { errorMessage } from "@/lib/utils";
+
+// Not a plain paste field like every other credential - written only by the
+// OAuth connect flow itself (see `connectGoogleCalendar`).
+const GOOGLE_CALENDAR_OAUTH_KEY = "google-calendar-oauth";
 
 export function SettingsDialog({
   open,
@@ -22,6 +26,7 @@ export function SettingsDialog({
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   // Credentials are OS-keychain-backed and never sent back to the frontend,
   // so fields always start blank - clearing on close (rather than reacting
@@ -30,6 +35,19 @@ export function SettingsDialog({
   function handleOpenChange(next: boolean) {
     if (!next) setValues({});
     onOpenChange(next);
+  }
+
+  async function handleConnect() {
+    setConnecting(true);
+    try {
+      await connectGoogleCalendar();
+      toast.success("Google Calendar connected");
+      await onSaved();
+    } catch (err) {
+      toast.error("Couldn't connect Google Calendar", { description: errorMessage(err) });
+    } finally {
+      setConnecting(false);
+    }
   }
 
   async function handleSave() {
@@ -74,15 +92,21 @@ export function SettingsDialog({
                   {cred.configured ? "configured" : "not set"}
                 </span>
               </div>
-              <Input
-                id={`cred-${cred.key}`}
-                type="password"
-                autoComplete="off"
-                placeholder="Paste key/token..."
-                className="font-mono text-[13px]"
-                value={values[cred.key] ?? ""}
-                onChange={(e) => setValues((prev) => ({ ...prev, [cred.key]: e.target.value }))}
-              />
+              {cred.key === GOOGLE_CALENDAR_OAUTH_KEY ? (
+                <Button type="button" variant="secondary" className="w-full" disabled={connecting} onClick={handleConnect}>
+                  {connecting ? "Connecting..." : cred.configured ? "Reconnect" : "Connect"}
+                </Button>
+              ) : (
+                <Input
+                  id={`cred-${cred.key}`}
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Paste key/token..."
+                  className="font-mono text-[13px]"
+                  value={values[cred.key] ?? ""}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [cred.key]: e.target.value }))}
+                />
+              )}
             </div>
           ))}
         </div>

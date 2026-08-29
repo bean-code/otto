@@ -5,15 +5,16 @@ use llmprism::providers::gemini::GeminiProvider;
 use llmprism::providers::ollama::OllamaProvider;
 use llmprism::providers::openai::OpenAiProvider;
 use llmprism::providers::openai_compatible::{
-    DeepSeekProvider, GroqProvider, MistralProvider, OpenRouterProvider, PerplexityProvider, XaiProvider, ZaiProvider,
+    DeepSeekProvider, GroqProvider, MistralProvider, OpenRouterProvider, PerplexityProvider,
+    XaiProvider, ZaiProvider,
 };
 use llmprism::Registry as LlmRegistry;
 use otto_core::{
-    credential_key, ActiveWindow, ActivityEntry, ActivityKind, ActivityLog, AgentLoop, AgentTurn, CredentialStore,
-    KeyringStore, ModelInfo, ProviderInfo, SkillInfo, SkillRegistry, SqliteStore, DEFAULT_PERSONA, MODEL_CATALOG,
-    PROVIDER_CATALOG,
+    credential_key, ActiveWindow, ActivityEntry, ActivityKind, ActivityLog, AgentLoop, AgentTurn,
+    CredentialStore, KeyringStore, ModelInfo, ProviderInfo, SkillInfo, SkillRegistry, SqliteStore,
+    DEFAULT_PERSONA, MODEL_CATALOG, PROVIDER_CATALOG,
 };
-use otto_skill_calendar::CalendarSkill;
+use otto_skill_calendar::{connect_google_calendar, CalendarSkill};
 use otto_skill_deploy::DeploySkill;
 use otto_skill_github::GithubSkill;
 use otto_skill_notify::NotifySkill;
@@ -26,6 +27,8 @@ use tokio::sync::RwLock;
 const DEFAULT_PROVIDER: &str = "anthropic";
 const DEFAULT_MODEL: &str = "claude-opus-5";
 const GITHUB_KEY: &str = "github-token";
+const GOOGLE_CALENDAR_CLIENT_ID_KEY: &str = "google-calendar-client-id";
+const GOOGLE_CALENDAR_OAUTH_KEY: &str = "google-calendar-oauth";
 const MODEL_PROVIDER_SETTING_KEY: &str = "model_provider";
 const MODEL_ID_SETTING_KEY: &str = "model_id";
 
@@ -66,7 +69,14 @@ impl AppState {
     async fn agent(&self) -> AgentLoop {
         let rt = self.runtime.read().await;
         let selected = self.selected.read().await.clone();
-        AgentLoop::new(rt.llm.clone(), selected.provider, selected.model, self.persona.clone(), rt.registry.clone(), self.store.clone())
+        AgentLoop::new(
+            rt.llm.clone(),
+            selected.provider,
+            selected.model,
+            self.persona.clone(),
+            rt.registry.clone(),
+            self.store.clone(),
+        )
     }
 
     async fn rebuild_runtime(&self) -> anyhow::Result<()> {
@@ -84,21 +94,45 @@ struct CredentialStatus {
 }
 
 #[tauri::command]
-async fn run_command(state: tauri::State<'_, Arc<AppState>>, input: String) -> Result<AgentTurn, String> {
+async fn run_command(
+    state: tauri::State<'_, Arc<AppState>>,
+    input: String,
+) -> Result<AgentTurn, String> {
     let selected = state.selected.read().await.clone();
     if let Some(info) = otto_core::provider_info(&selected.provider) {
-        if info.needs_api_key && state.credentials.get(&credential_key(info.id)).await.is_err() {
-            return Err(format!("no {} API key configured yet - open Settings and add one", info.name));
+        if info.needs_api_key
+            && state
+                .credentials
+                .get(&credential_key(info.id))
+                .await
+                .is_err()
+        {
+            return Err(format!(
+                "no {} API key configured yet - open Settings and add one",
+                info.name
+            ));
         }
     }
-    state.agent().await.run(&input).await.map_err(|e| e.to_string())
+    state
+        .agent()
+        .await
+        .run(&input)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Most recent activity first (commands, growth-digest notes, schedule
 /// events - one feed), for the Activities tab.
 #[tauri::command]
-async fn list_activities(state: tauri::State<'_, Arc<AppState>>, limit: Option<u32>) -> Result<Vec<ActivityEntry>, String> {
-    state.store.list_recent(limit.unwrap_or(100) as usize).await.map_err(|e| e.to_string())
+async fn list_activities(
+    state: tauri::State<'_, Arc<AppState>>,
+    limit: Option<u32>,
+) -> Result<Vec<ActivityEntry>, String> {
+    state
+        .store
+        .list_recent(limit.unwrap_or(100) as usize)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Every provider Otto knows how to talk to, for Settings and the Models
@@ -118,7 +152,9 @@ fn list_models() -> Vec<ModelInfo> {
 }
 
 #[tauri::command]
-async fn get_selected_model(state: tauri::State<'_, Arc<AppState>>) -> Result<SelectedModel, String> {
+async fn get_selected_model(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<SelectedModel, String> {
     Ok(state.selected.read().await.clone())
 }
 
@@ -127,7 +163,11 @@ async fn get_selected_model(state: tauri::State<'_, Arc<AppState>>) -> Result<Se
 /// any non-empty string is accepted, so a newly-released or self-hosted
 /// (Ollama) model works without an otto-core update.
 #[tauri::command]
-async fn set_selected_model(state: tauri::State<'_, Arc<AppState>>, provider: String, model: String) -> Result<(), String> {
+async fn set_selected_model(
+    state: tauri::State<'_, Arc<AppState>>,
+    provider: String,
+    model: String,
+) -> Result<(), String> {
     if otto_core::provider_info(&provider).is_none() {
         return Err(format!("unknown provider '{provider}'"));
     }
@@ -136,8 +176,16 @@ async fn set_selected_model(state: tauri::State<'_, Arc<AppState>>, provider: St
     }
     let model = model.trim().to_string();
 
-    state.store.set_setting(MODEL_PROVIDER_SETTING_KEY, &provider).await.map_err(|e| e.to_string())?;
-    state.store.set_setting(MODEL_ID_SETTING_KEY, &model).await.map_err(|e| e.to_string())?;
+    state
+        .store
+        .set_setting(MODEL_PROVIDER_SETTING_KEY, &provider)
+        .await
+        .map_err(|e| e.to_string())?;
+    state
+        .store
+        .set_setting(MODEL_ID_SETTING_KEY, &model)
+        .await
+        .map_err(|e| e.to_string())?;
     *state.selected.write().await = SelectedModel { provider, model };
     Ok(())
 }
@@ -155,39 +203,91 @@ async fn list_skills(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<Skill
 /// on gracefully.
 #[tauri::command]
 fn get_greeting_name() -> Option<String> {
-    std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok()
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
 }
 
 /// Whether each known credential (every API-key provider, plus GitHub) is
 /// currently set - never the value itself.
 #[tauri::command]
-async fn get_credential_status(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<CredentialStatus>, String> {
+async fn get_credential_status(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Vec<CredentialStatus>, String> {
     let mut out = Vec::with_capacity(PROVIDER_CATALOG.len() + 1);
     for provider in PROVIDER_CATALOG.iter().filter(|p| p.needs_api_key) {
         let key = credential_key(provider.id);
         let configured = state.credentials.get(&key).await.is_ok();
-        out.push(CredentialStatus { key, label: provider.name.to_string(), configured });
+        out.push(CredentialStatus {
+            key,
+            label: provider.name.to_string(),
+            configured,
+        });
     }
     out.push(CredentialStatus {
         key: GITHUB_KEY.to_string(),
         label: "GitHub".to_string(),
         configured: state.credentials.get(GITHUB_KEY).await.is_ok(),
     });
+    out.push(CredentialStatus {
+        key: GOOGLE_CALENDAR_CLIENT_ID_KEY.to_string(),
+        label: "Google Calendar Client ID".to_string(),
+        configured: state
+            .credentials
+            .get(GOOGLE_CALENDAR_CLIENT_ID_KEY)
+            .await
+            .is_ok(),
+    });
+    out.push(CredentialStatus {
+        key: GOOGLE_CALENDAR_OAUTH_KEY.to_string(),
+        label: "Google Calendar".to_string(),
+        configured: state
+            .credentials
+            .get(GOOGLE_CALENDAR_OAUTH_KEY)
+            .await
+            .is_ok(),
+    });
     Ok(out)
 }
 
 /// Saves a credential to the OS keychain and rebuilds the runtime so it
-/// takes effect immediately, without restarting the app.
+/// takes effect immediately, without restarting the app. Deliberately
+/// excludes `GOOGLE_CALENDAR_OAUTH_KEY` - that one is only ever written by
+/// `connect_google_calendar`'s own OAuth flow, never pasted.
 #[tauri::command]
-async fn set_credential(state: tauri::State<'_, Arc<AppState>>, key: String, value: String) -> Result<(), String> {
-    let is_known_provider_key = PROVIDER_CATALOG.iter().any(|p| p.needs_api_key && credential_key(p.id) == key);
-    if key != GITHUB_KEY && !is_known_provider_key {
+async fn set_credential(
+    state: tauri::State<'_, Arc<AppState>>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let is_known_provider_key = PROVIDER_CATALOG
+        .iter()
+        .any(|p| p.needs_api_key && credential_key(p.id) == key);
+    let is_known_key =
+        key == GITHUB_KEY || key == GOOGLE_CALENDAR_CLIENT_ID_KEY || is_known_provider_key;
+    if !is_known_key {
         return Err(format!("unknown credential '{key}'"));
     }
     if value.trim().is_empty() {
         return Err("value can't be empty".to_string());
     }
-    state.credentials.set(&key, value.trim()).await.map_err(|e| e.to_string())?;
+    state
+        .credentials
+        .set(&key, value.trim())
+        .await
+        .map_err(|e| e.to_string())?;
+    state.rebuild_runtime().await.map_err(|e| e.to_string())
+}
+
+/// Runs the Google Calendar OAuth2/PKCE connect flow (opens the consent
+/// screen in the user's default browser, waits for the redirect, exchanges
+/// the code) and rebuilds the runtime so the connection is live immediately.
+/// Requires `GOOGLE_CALENDAR_CLIENT_ID_KEY` to already be set.
+#[tauri::command]
+async fn connect_google_calendar_cmd(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+    connect_google_calendar(&*state.credentials)
+        .await
+        .map_err(|e| e.to_string())?;
     state.rebuild_runtime().await.map_err(|e| e.to_string())
 }
 
@@ -195,21 +295,30 @@ async fn set_credential(state: tauri::State<'_, Arc<AppState>>, key: String, val
 /// is available (no whisper model configured - see the README).
 #[tauri::command]
 async fn start_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
-    let voice = state.voice.as_ref().ok_or("voice input isn't available (no whisper model configured)")?;
+    let voice = state
+        .voice
+        .as_ref()
+        .ok_or("voice input isn't available (no whisper model configured)")?;
     voice.start_recording().await.map_err(|e| e.to_string())
 }
 
 /// Stops recording and transcribes what was captured.
 #[tauri::command]
 async fn stop_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<String, String> {
-    let voice = state.voice.as_ref().ok_or("voice input isn't available (no whisper model configured)")?;
+    let voice = state
+        .voice
+        .as_ref()
+        .ok_or("voice input isn't available (no whisper model configured)")?;
     voice.stop_recording().await.map_err(|e| e.to_string())
 }
 
 /// Speaks `text` aloud via the OS's native TTS engine.
 #[tauri::command]
 async fn speak(state: tauri::State<'_, Arc<AppState>>, text: String) -> Result<(), String> {
-    let voice = state.voice.as_ref().ok_or("talk-back isn't available (no text-to-speech backend on this system)")?;
+    let voice = state
+        .voice
+        .as_ref()
+        .ok_or("talk-back isn't available (no text-to-speech backend on this system)")?;
     voice.speak(text).await.map_err(|e| e.to_string())
 }
 
@@ -230,7 +339,9 @@ fn register_provider(llm: &mut LlmRegistry, id: &str, api_key: String) {
         "perplexity" => llm.register(id, PerplexityProvider::new(api_key)),
         "zai" => llm.register(id, ZaiProvider::new(api_key)),
         "ollama" => llm.register(id, OllamaProvider::new()),
-        other => tracing::warn!("no llmprism provider wired up for '{other}' - update register_provider"),
+        other => {
+            tracing::warn!("no llmprism provider wired up for '{other}' - update register_provider")
+        }
     }
 }
 
@@ -257,12 +368,21 @@ async fn build_runtime(credentials: Arc<dyn CredentialStore>) -> anyhow::Result<
     let default_repo = std::env::var("OTTO_DEFAULT_REPO").ok();
 
     let mut registry = SkillRegistry::new();
-    registry.register(Arc::new(GithubSkill::new(credentials.clone(), default_repo.clone())));
-    registry.register(Arc::new(DeploySkill::new(credentials.clone(), default_repo)));
-    registry.register(Arc::new(CalendarSkill::new()));
+    registry.register(Arc::new(GithubSkill::new(
+        credentials.clone(),
+        default_repo.clone(),
+    )));
+    registry.register(Arc::new(DeploySkill::new(
+        credentials.clone(),
+        default_repo,
+    )));
+    registry.register(Arc::new(CalendarSkill::new(credentials.clone())));
     registry.register(Arc::new(NotifySkill::new()));
 
-    Ok(SharedRuntime { registry: Arc::new(registry), llm })
+    Ok(SharedRuntime {
+        registry: Arc::new(registry),
+        llm,
+    })
 }
 
 async fn build_state() -> anyhow::Result<AppState> {
@@ -324,12 +444,20 @@ fn spawn_growth_digest(state: Arc<AppState>) {
         .unwrap_or(24);
 
     tauri::async_runtime::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_hours * 3600));
+        let mut ticker =
+            tokio::time::interval(std::time::Duration::from_secs(interval_hours * 3600));
         loop {
             ticker.tick().await;
             let rt = state.runtime.read().await;
             let selected = state.selected.read().await.clone();
-            if let Err(e) = otto_core::run_growth_digest(&rt.registry, &rt.llm, &selected.provider, &selected.model, &*state.store).await
+            if let Err(e) = otto_core::run_growth_digest(
+                &rt.registry,
+                &rt.llm,
+                &selected.provider,
+                &selected.model,
+                &*state.store,
+            )
+            .await
             {
                 tracing::debug!("growth digest skipped this cycle: {e}");
             }
@@ -343,7 +471,9 @@ pub fn run() {
     // reads `OTTO_*` env vars.
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     let active_window = match ActiveWindow::from_env() {
         None => None,
@@ -366,7 +496,8 @@ pub fn run() {
     }
 
     let state = Arc::new(
-        tauri::async_runtime::block_on(build_state()).expect("failed to initialize Otto (see the README's setup section)"),
+        tauri::async_runtime::block_on(build_state())
+            .expect("failed to initialize Otto (see the README's setup section)"),
     );
 
     tauri::Builder::default()
@@ -409,7 +540,12 @@ pub fn run() {
             // Cargo's CARGO_PKG_AUTHORS (what package_info().authors comes
             // from) joins multiple authors with ':' - split it back out so
             // each shows as its own entry rather than one run-on string.
-            let authors: Vec<String> = app.package_info().authors.split(':').map(|a| a.trim().to_string()).collect();
+            let authors: Vec<String> = app
+                .package_info()
+                .authors
+                .split(':')
+                .map(|a| a.trim().to_string())
+                .collect();
             // `credits` is the macOS-only equivalent of `authors` (which
             // AboutMetadata's own docs mark unsupported on macOS) - set
             // both so contributors show up on every platform.
@@ -420,7 +556,8 @@ pub fn run() {
             // A properly about-dialog-sized icon (128x128) - the full
             // window icon (512x512 source / multi-res .ico) rendered life
             // size in a native about box, which is far too large.
-            let about_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/about-icon.png")).ok();
+            let about_icon =
+                tauri::image::Image::from_bytes(include_bytes!("../icons/about-icon.png")).ok();
 
             let about = AboutMetadataBuilder::new()
                 .name(Some(app.package_info().name.clone()))
@@ -449,7 +586,10 @@ pub fn run() {
                 .paste()
                 .select_all()
                 .build()?;
-            let menu = MenuBuilder::new(handle).item(&file_menu).item(&edit_menu).build()?;
+            let menu = MenuBuilder::new(handle)
+                .item(&file_menu)
+                .item(&edit_menu)
+                .build()?;
             app.set_menu(menu)?;
 
             app.on_menu_event(|app, event| {
@@ -473,7 +613,8 @@ pub fn run() {
             list_skills,
             get_greeting_name,
             get_credential_status,
-            set_credential
+            set_credential,
+            connect_google_calendar_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Otto desktop app");

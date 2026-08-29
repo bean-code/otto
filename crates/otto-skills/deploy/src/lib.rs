@@ -31,10 +31,13 @@ impl DeploySkill {
         self.client
             .get_or_try_init(|| async {
                 let token = self.credentials.get(CREDENTIAL_KEY).await?;
-                Octocrab::builder().personal_token(token).build().map_err(|e| CoreError::SkillFailed {
-                    skill: self.id().to_string(),
-                    message: format!("failed to build github client: {e}"),
-                })
+                Octocrab::builder()
+                    .personal_token(token)
+                    .build()
+                    .map_err(|e| CoreError::SkillFailed {
+                        skill: self.id().to_string(),
+                        message: format!("failed to build github client: {e}"),
+                    })
             })
             .await
     }
@@ -47,13 +50,16 @@ impl DeploySkill {
             .or_else(|| self.default_repo.clone())
             .ok_or_else(|| CoreError::InvalidInput {
                 tool: "deploy".into(),
-                message: "no 'repo' given and no default repo configured; expected \"owner/name\"".into(),
+                message: "no 'repo' given and no default repo configured; expected \"owner/name\""
+                    .into(),
             })?;
 
-        let (owner, name) = repo_str.split_once('/').ok_or_else(|| CoreError::InvalidInput {
-            tool: "deploy".into(),
-            message: format!("'{repo_str}' is not a valid \"owner/name\" repo"),
-        })?;
+        let (owner, name) = repo_str
+            .split_once('/')
+            .ok_or_else(|| CoreError::InvalidInput {
+                tool: "deploy".into(),
+                message: format!("'{repo_str}' is not a valid \"owner/name\" repo"),
+            })?;
 
         Ok((owner.to_string(), name.to_string()))
     }
@@ -118,7 +124,10 @@ impl DeploySkill {
             ));
         };
 
-        let conclusion = run.conclusion.clone().unwrap_or_else(|| "pending".to_string());
+        let conclusion = run
+            .conclusion
+            .clone()
+            .unwrap_or_else(|| "pending".to_string());
         let summary = format!(
             "'{workflow}' in {owner}/{repo}: run #{} on {} - {} ({})",
             run.run_number, run.head_branch, run.status, conclusion

@@ -1,7 +1,7 @@
 # Building a skill
 
-A skill is how Otto gains a new capability - GitHub, deployments, notifications, and (once wired up) calendars
-are all skills. There's no plugin runtime, no dynamic loading, no sandboxing to reason about: a skill
+A skill is how Otto gains a new capability - GitHub, deployments, calendars, and notifications are all skills.
+There's no plugin runtime, no dynamic loading, no sandboxing to reason about: a skill
 is a normal Rust crate in the workspace that implements one trait. This is a deliberate choice, not a stopgap -
 compile-time extensibility is simpler, faster, and more trustworthy than a runtime plugin system, and nothing
 about the design below rules one out later if it's ever actually needed.
