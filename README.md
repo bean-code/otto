@@ -463,6 +463,11 @@ from now.
 commands with growth-digest/schedule events in one feed, and a settings round-trip/overwrite - all against a
 temp on-disk database, not mocks.
 
+The frontend has its own suite - `pnpm --dir crates/otto-ui/frontend test` (Vitest + React Testing Library, see
+that directory's README) - covering the parts most likely to break silently: the status-refresh hook, the
+command bar's submit/error/push-to-talk/talk-back flows, sidebar navigation, and the Settings dialog's
+credential-save and Google Calendar connect flows. Both suites run in CI on all three platforms.
+
 Known gaps, tracked rather than hidden: the growth digest only looks at open PRs, not a fuller activity history
 (commits, merged/closed PRs) even across the repos `OTTO_GROWTH_REPOS` names. Not blocked on anything - it's the
 natural next slice of work.

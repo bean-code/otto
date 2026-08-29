@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -19,5 +20,14 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    css: false,
+    // @testing-library/react's auto-cleanup-after-each-test registers
+    // itself against a global `afterEach` - without `globals: true` here it
+    // never fires, so components from one test stay mounted into the next.
+    globals: true,
   },
 });

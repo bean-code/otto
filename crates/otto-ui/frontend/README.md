@@ -39,6 +39,21 @@ Type-checks with `tsc -b`, then bundles with Vite into `dist/` - this alone does
 Tauri's bundler. For a full release build (frontend + platform installer), run
 `pnpm --dir crates/otto-ui build`.
 
+## Testing
+
+```sh
+pnpm test           # run once (what CI runs)
+pnpm test:watch     # watch mode
+pnpm test:coverage  # with a coverage report
+```
+
+[Vitest](https://vitest.dev) + [React Testing Library](https://testing-library.com/react), configured via the
+`test` block in `vite.config.ts` (reuses the same Vite config/plugins/alias rather than a separate config file -
+`globals: true` is required there for Testing Library's auto-cleanup-after-each-test to register itself).
+`src/lib/tauri.ts` is mocked with `vi.mock` in component tests rather than hit for real - no live Tauri runtime
+exists under `jsdom`. Test files sit next to what they test (`Sidebar.tsx` / `Sidebar.test.tsx`), not in a
+separate `__tests__/` tree.
+
 ## Adding shadcn components
 
 ```sh
