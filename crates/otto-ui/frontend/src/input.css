@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/* Compiled once with `npx @tailwindcss/cli` into
+   ../dist/assets/tailwind.css (checked in, not rebuilt at runtime) - see
+   crates/otto-ui/frontend/README.md. Scans ../dist/index.html for classes. */
+@source "../dist/index.html";
+
+@theme {
+  --font-sans: -apple-system, "Segoe UI", "Space Grotesk", Inter, system-ui, sans-serif;
+
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f1f3f6;
+  --color-border: #e5e8ee;
+  --color-border-strong: #d7dbe3;
+  --color-ink: #1b1f27;
+  --color-muted: #6b7280;
+  --color-muted-2: #9aa1ac;
+
+  --color-accent: #c9821f;
+  --color-accent-soft: #fdf2e2;
+  --color-accent-2: #2f6fed;
+  --color-accent-2-soft: #eaf1ff;
+  --color-navy: #212840;
+  --color-danger: #d9455f;
+  --color-danger-soft: #fdecef;
+  --color-success: #1f9d63;
+  --color-success-soft: #e8f8f0;
+  --color-navy-soft: #eaecf3;
+
+  --shadow-card: 0 1px 2px rgba(20, 24, 33, 0.05), 0 1px 1px rgba(20, 24, 33, 0.03);
+  --shadow-elevated: 0 8px 24px rgba(20, 24, 33, 0.08), 0 2px 6px rgba(20, 24, 33, 0.04);
+  --shadow-modal: 0 20px 48px rgba(20, 24, 33, 0.14);
+}
+
+@utility drag-region {
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  -webkit-app-region: no-drag;
+}
+
+@utility animate-pulse-ring {
+  animation: pulse-ring 1.2s ease-out infinite;
+}
+@utility animate-spin-orb {
+  animation: spin-orb 1s linear infinite;
+}
+@utility animate-slide-in {
+  animation: slide-in 0.2s ease;
+}
+@utility animate-toast-in {
+  animation: toast-in 0.2s ease;
+}
+@utility animate-toast-out {
+  animation: toast-out 0.2s ease forwards;
+}
+@utility animate-fade-in {
+  animation: fade-in 0.15s ease;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(217, 69, 95, 0.35); }
+  70% { box-shadow: 0 0 0 10px rgba(217, 69, 95, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(217, 69, 95, 0); }
+}
+@keyframes spin-orb {
+  to { transform: rotate(360deg); }
+}
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-out {
+  to { opacity: 0; transform: translateX(20px); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+body {
+  font-family: var(--font-sans);
+}
