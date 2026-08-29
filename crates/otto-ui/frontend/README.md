@@ -5,30 +5,39 @@ Vite + React + TypeScript, styled with [Tailwind CSS v4](https://tailwindcss.com
 frontend, Node is now a **required build-time dependency** - the source is real `.tsx`/`.ts`, so
 `frontend/dist/` can no longer be hand-maintained or committed; it's generated build output.
 
+This directory is a member of the pnpm workspace rooted one level up at `crates/otto-ui/` (see
+that directory's `package.json`) - `@tauri-apps/cli` lives there, not here, because the Tauri CLI
+needs `tauri.conf.json`'s own directory as its working directory. Run `pnpm dev`/`pnpm build`
+**from `crates/otto-ui/`**, not from here, to actually launch or build the app; the commands below
+are for iterating on the frontend in isolation.
+
 ## Setup
 
 ```sh
-pnpm install
+pnpm --dir crates/otto-ui install
 ```
 
-## Developing
+(installs both this package and the workspace root's `@tauri-apps/cli`)
+
+## Developing the frontend in isolation
 
 ```sh
-pnpm tauri dev
+pnpm dev
 ```
 
-Runs the Vite dev server (with HMR) and the Tauri window together - this is the primary dev
-workflow. `cargo run -p otto-ui` also still works, but only against a previously-built `dist/`
-(no HMR); run `pnpm build` first if you use it.
+Starts just the Vite dev server (`http://localhost:1420`) without Tauri - useful for iterating on
+markup/styling in a regular browser tab. For the full app with the Tauri window, run
+`pnpm --dir crates/otto-ui dev` instead (see the root README).
 
 ## Building
 
 ```sh
-pnpm tauri build
+pnpm build
 ```
 
-Builds the frontend and the platform installer together. `pnpm build` alone just produces
-`dist/` (type-checks with `tsc -b`, then bundles with Vite) without invoking Tauri's bundler.
+Type-checks with `tsc -b`, then bundles with Vite into `dist/` - this alone doesn't invoke
+Tauri's bundler. For a full release build (frontend + platform installer), run
+`pnpm --dir crates/otto-ui build`.
 
 ## Adding shadcn components
 

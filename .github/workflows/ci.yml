@@ -60,10 +60,13 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: crates/otto-ui/frontend/pnpm-lock.yaml
+          cache-dependency-path: crates/otto-ui/pnpm-lock.yaml
 
+      # `crates/otto-ui` is the pnpm workspace root (it needs @tauri-apps/cli
+      # to run with tauri.conf.json's own directory as cwd - see that
+      # directory's package.json), with `frontend` as a workspace member.
       - name: Install frontend dependencies
-        run: pnpm --dir crates/otto-ui/frontend install --frozen-lockfile
+        run: pnpm --dir crates/otto-ui install --frozen-lockfile
 
       - name: Build frontend
         run: pnpm --dir crates/otto-ui/frontend build

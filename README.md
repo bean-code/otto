@@ -205,32 +205,31 @@ sudo apt-get install -y \
 (The last line is for `otto-voice`: `libasound2-dev` for mic capture via `cpal`/ALSA, `speech-dispatcher` +
 `libspeechd-dev` for talk-back via the `tts` crate, `cmake` to build `whisper.cpp` via `whisper-rs`.)
 
-Then, install the frontend's dependencies once and run the app through Tauri's own CLI (via
-`@tauri-apps/cli`, a frontend devDependency - no global `cargo install tauri-cli` needed):
+Then, install dependencies once and run the app through Tauri's own CLI (via `@tauri-apps/cli`, a
+devDependency - no global `cargo install tauri-cli` needed):
 
 ```sh
-pnpm --dir crates/otto-ui/frontend install
-pnpm --dir crates/otto-ui/frontend exec tauri dev
+pnpm --dir crates/otto-ui install
+pnpm --dir crates/otto-ui dev
 ```
 
-(`pnpm --dir <path> exec <bin>` - not the bare `pnpm --dir <path> tauri dev` shorthand, which some
-pnpm versions mis-parse when `--dir` is combined with a binary that isn't a `package.json` script.
-Running from inside the directory - `cd crates/otto-ui/frontend && pnpm tauri dev` - works either
-way, see `crates/otto-ui/frontend/README.md`.)
-
-This runs the Vite dev server (full HMR) and the Tauri window together - the primary dev workflow.
-`cargo run -p otto-ui` also still works, but only against a previously-built `frontend/dist/` (no
-HMR); run `pnpm --dir crates/otto-ui/frontend build` first if you use it. For a release build,
-`pnpm --dir crates/otto-ui/frontend exec tauri build` builds the frontend and the platform
-installer together.
+`crates/otto-ui` is a small pnpm workspace: `tauri.conf.json`, `Cargo.toml`, and `src/` live at
+its root alongside a minimal `package.json` carrying just `@tauri-apps/cli`, with the actual
+frontend nested underneath as the `frontend` workspace member. The CLI has to run with
+`tauri.conf.json`'s own directory as its working directory (it looks for that file at or below
+`cwd`, never above it) - which is exactly why `@tauri-apps/cli` lives at this root rather than in
+`frontend/`'s own `package.json`. `pnpm dev` runs the Vite dev server (full HMR) and the Tauri
+window together - the primary dev workflow. `cargo run -p otto-ui` also still works, but only
+against a previously-built `frontend/dist/` (no HMR); run `pnpm --dir crates/otto-ui/frontend
+build` first if you use it. For a release build, `pnpm --dir crates/otto-ui build` builds the
+frontend and the platform installer together.
 
 The dashboard's frontend (`crates/otto-ui/frontend/`) is Vite + React + TypeScript, styled with
 [Tailwind CSS](https://tailwindcss.com) v4 and [shadcn/ui](https://ui.shadcn.com) (Radix
 primitives) - it calls the Rust backend through typed wrappers in `src/lib/tauri.ts` (the only
 file that touches the raw `@tauri-apps/api` `invoke`), with `src/lib/types.ts` mirroring the Rust
 `Serialize` struct shapes. Node is a required build-time dependency now - see
-`crates/otto-ui/frontend/README.md` for the full dev workflow, design-token, and icon-system
-notes.
+`crates/otto-ui/frontend/README.md` for design-token and icon-system notes.
 
 **What's actually in the window:**
 

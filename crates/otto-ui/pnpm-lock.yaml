@@ -7,6 +7,12 @@ settings:
 importers:
 
   .:
+    devDependencies:
+      '@tauri-apps/cli':
+        specifier: ^2.11.4
+        version: 2.11.4
+
+  frontend:
     dependencies:
       '@tauri-apps/api':
         specifier: ^2.11.1
@@ -48,9 +54,6 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.2(@types/node@24.13.3)(jiti@2.7.0))
-      '@tauri-apps/cli':
-        specifier: ^2.11.4
-        version: 2.11.4
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
