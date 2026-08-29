@@ -27,7 +27,19 @@ otto-skill-calendar = { path = "crates/otto-skills/calendar" }
 otto-skill-notify = { path = "crates/otto-skills/notify" }
 otto-voice = { path = "crates/otto-voice" }
 
-llmprism = { version = "0.4", features = ["anthropic"] }
+llmprism = { version = "0.4", features = [
+    "anthropic",
+    "openai",
+    "gemini",
+    "groq",
+    "deepseek",
+    "mistral",
+    "xai",
+    "openrouter",
+    "perplexity",
+    "zai",
+    "ollama",
+] }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
 serde = { version = "1", features = ["derive"] }
