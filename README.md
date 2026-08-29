@@ -317,6 +317,35 @@ rather than silently picking one), and a language selector across English/French
 the same way everything else here is: `tauri.conf.json` uses `deny_unknown_fields` throughout, so a wrong field
 name or enum value fails `cargo build` immediately, not at package time.
 
+CI (`.github/workflows/ci.yml`) builds and uploads both a Windows NSIS installer and a macOS `.dmg`/`.app` as
+workflow artifacts on every run, using `tauri.conf.json`'s own `bundle.icon` for branding - no extra config for
+that part. Neither is currently signed:
+
+- **Windows** hits the same kind of wall - Smart App Control/SmartScreen blocks or flags unsigned apps. Not
+  wired into CI yet (needs the same kind of decision as macOS: a real certificate, either a traditional OV/EV
+  cert or Microsoft's cheaper [Azure Trusted Signing](https://learn.microsoft.com/en-us/azure/trusted-signing/)
+  - a cost/procurement choice, not something to default into).
+- **macOS** hits the equivalent wall: Gatekeeper blocks unsigned/unnotarized apps outright. CI is already wired
+  to sign+notarize automatically the moment these repo secrets exist (nothing to change in the workflow itself
+  when that day comes) - it just doesn't attempt it while they're absent, checked precisely (Tauri's bundler
+  decides whether to sign based on whether `APPLE_SIGNING_IDENTITY`/`APPLE_ID`/etc. are *set at all*, not
+  whether they're non-empty - so the workflow is careful to leave them genuinely unset, not present-as-empty-
+  string, when signing isn't configured; a job-level `env:` mapped straight from `secrets.X` would have gotten
+  this wrong and made every macOS build silently attempt - and fail - notarization with blank credentials).
+  To turn it on:
+
+  1. Enroll in the [Apple Developer Program](https://developer.apple.com/programs/) (paid, currently $99/year).
+  2. In Xcode or the [developer portal](https://developer.apple.com/account/resources/certificates/list),
+     create a **Developer ID Application** certificate, export it as a `.p12` with a password.
+  3. Add these as repo secrets (Settings > Secrets and variables > Actions):
+     `APPLE_CERTIFICATE` (the `.p12`, base64-encoded: `base64 -i cert.p12 | pbcopy`),
+     `APPLE_CERTIFICATE_PASSWORD` (the export password), `KEYCHAIN_PASSWORD` (any password - CI generates a
+     throwaway keychain, this just protects it for the run's duration).
+  4. For notarization too (not just signing - both are required for Gatekeeper to allow the app without a
+     warning): `APPLE_ID` (your Apple ID email), `APPLE_PASSWORD` (an
+     [app-specific password](https://support.apple.com/en-us/102654), not your real Apple ID password),
+     `APPLE_TEAM_ID` (from the developer portal's membership page).
+
 ### Voice: setup
 
 Voice is optional - `otto-ui` starts fine without it, and the mic button/talk-back now surface a clear toast

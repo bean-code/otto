@@ -98,9 +98,7 @@ jobs:
       # workflow artifact - `tauri.conf.json`'s `bundle.icon` already points
       # at Otto's own icons (`icons/icon.png`/`icons/icon.ico`), so the
       # installer and its shortcuts use Otto's branding with no extra config
-      # here. Windows-only per the actual ask; the same `pnpm ... build`
-      # command would produce a .dmg/.app or .deb/.AppImage on the other two
-      # platforms if that's ever wanted too.
+      # here.
       - name: Build Windows installer
         if: runner.os == 'Windows'
         run: pnpm --dir crates/otto-ui build
@@ -111,4 +109,80 @@ jobs:
         with:
           name: otto-windows-installer
           path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      # Same idea on macOS, which has its own version of Windows' Smart App
+      # Control problem: Gatekeeper blocks unsigned/unnotarized apps. Only
+      # signs+notarizes if the Apple secrets below are actually configured
+      # (they aren't yet) - otherwise this just produces the same unsigned
+      # .app/.dmg as running `pnpm ... build` locally, so CI stays green
+      # either way and signing "just activates" once the secrets exist, no
+      # workflow change needed at that point. See the README for what each
+      # secret is and how to get it (an Apple Developer account is required,
+      # a real decision/cost only the user can make - not set up yet).
+      #
+      # `secrets.X` can't be read in a step `if:` (only `env.X` can), so
+      # this step computes a plain boolean first - `secrets.X != ''` is
+      # still a normal expression, just evaluated inline here instead.
+      - name: Detect Apple signing secrets
+        if: runner.os == 'macOS'
+        run: echo "HAS_APPLE_CERT=${{ secrets.APPLE_CERTIFICATE != '' }}" >> "$GITHUB_ENV"
+
+      # Tauri's bundler decides whether to sign/notarize with `var_os(...)`
+      # (Rust's "is this env var set at all", true even for an empty
+      # string) - never `std::env::var(...).is_empty()`. So these secrets
+      # must never be set as a job-level `env:` (which would make them
+      # present-but-empty on every run and trip that check into attempting
+      # - and failing - a notarization with garbage credentials); they're
+      # only ever written here, in a step gated on HAS_APPLE_CERT, so on an
+      # unsigned run `APPLE_SIGNING_IDENTITY`/`APPLE_ID`/etc. stay
+      # genuinely absent from the environment, not just empty.
+      - name: Import Apple signing certificate
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          # Separate from the signing secrets above (someone could set up
+          # signing without notarization) - each only gets written to
+          # $GITHUB_ENV, and so only becomes visible to the build step,
+          # when it's actually non-empty. A half-configured notarization
+          # secret must stay fully absent, not present-but-empty.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import "$RUNNER_TEMP/certificate.p12" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm "$RUNNER_TEMP/certificate.p12"
+          identity=$(security find-identity -v -p codesigning build.keychain | grep -oE '"[^"]+"' | head -1 | tr -d '"')
+          if [ -z "$identity" ]; then
+            echo "::error::certificate imported but no codesigning identity was found in it - check APPLE_CERTIFICATE/APPLE_CERTIFICATE_PASSWORD" >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          # `if`'s own condition is exempt from bash -e's errexit - a bare
+          # `[ -n "$X" ] && echo ...` statement is NOT (the whole AND-list
+          # "fails" when $X is empty, which would abort this step right
+          # here under GitHub Actions' default `bash -e`).
+          if [ -n "$APPLE_ID" ]; then echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"; fi
+          if [ -n "$APPLE_PASSWORD" ]; then echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"; fi
+          if [ -n "$APPLE_TEAM_ID" ]; then echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"; fi
+
+      - name: Build macOS installer
+        if: runner.os == 'macOS'
+        run: pnpm --dir crates/otto-ui build
+
+      - name: Upload macOS installer artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: otto-macos-installer
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/macos/*.app
           if-no-files-found: error
