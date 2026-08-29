@@ -223,7 +223,12 @@ short/long description - all surfaced two places: in whatever installer `cargo t
 target platform, and in the native About dialog (`tauri::menu::AboutMetadataBuilder`, reading the same config at
 runtime rather than duplicating it into Rust source). `Cargo.toml`'s `[workspace.package]` carries `authors` and
 `description`, which `otto-ui` opts into (`authors.workspace = true`) and which show up in About via
-`package_info()`.
+`package_info()` - split back out on Cargo's `:` author separator so each contributor shows as their own entry,
+set on both `authors` (Windows/Linux) and `credits` (the macOS-only equivalent - `AboutMetadata` supports each on
+the opposite platform from the other, so both are set with the same contributors). The About dialog's icon is a
+dedicated 128x128 render (`crates/otto-ui/icons/about-icon.png`, generated from the same source logo as the app
+icon) rather than the full window icon, which a native about box doesn't scale down on its own. `license` is the
+complete `LICENSE` text (`include_str!`), not just the word "MIT" - the actual terms, not a pointer to them.
 
 On Windows specifically, `bundle.windows.nsis` is configured for a real installer experience rather than the
 NSIS defaults: `installMode: "both"` (the installer asks whether to install for the current user or all users,

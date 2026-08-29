@@ -319,14 +319,32 @@ pub fn run() {
             // from Cargo.toml (via `package_info()`) - one source of truth,
             // not duplicated into Rust source.
             let handle = app.handle();
+            // Cargo's CARGO_PKG_AUTHORS (what package_info().authors comes
+            // from) joins multiple authors with ':' - split it back out so
+            // each shows as its own entry rather than one run-on string.
+            let authors: Vec<String> = app.package_info().authors.split(':').map(|a| a.trim().to_string()).collect();
+            // `credits` is the macOS-only equivalent of `authors` (which
+            // AboutMetadata's own docs mark unsupported on macOS) - set
+            // both so contributors show up on every platform.
+            let credits = authors.join(", ");
+            // The full LICENSE text, not just "MIT" - the license terms
+            // themselves, not a one-word pointer to them.
+            let license_text = include_str!("../../../LICENSE");
+            // A properly about-dialog-sized icon (128x128) - the full
+            // window icon (512x512 source / multi-res .ico) rendered life
+            // size in a native about box, which is far too large.
+            let about_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/about-icon.png")).ok();
+
             let about = AboutMetadataBuilder::new()
                 .name(Some(app.package_info().name.clone()))
                 .version(Some(app.package_info().version.to_string()))
-                .authors(Some(vec![app.package_info().authors.to_string()]))
+                .authors(Some(authors))
+                .credits(Some(credits))
                 .copyright(app.config().bundle.copyright.clone())
-                .license(app.config().bundle.license.clone())
+                .license(Some(license_text.to_string()))
                 .website(app.config().bundle.homepage.clone())
-                .icon(app.default_window_icon().cloned())
+                .website_label(Some("github.com/bean-code/otto"))
+                .icon(about_icon)
                 .build();
             let file_menu = SubmenuBuilder::new(handle, "Otto")
                 .about(Some(about))
