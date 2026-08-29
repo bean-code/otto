@@ -210,14 +210,19 @@ Then, install the frontend's dependencies once and run the app through Tauri's o
 
 ```sh
 pnpm --dir crates/otto-ui/frontend install
-pnpm --dir crates/otto-ui/frontend tauri dev
+pnpm --dir crates/otto-ui/frontend exec tauri dev
 ```
+
+(`pnpm --dir <path> exec <bin>` - not the bare `pnpm --dir <path> tauri dev` shorthand, which some
+pnpm versions mis-parse when `--dir` is combined with a binary that isn't a `package.json` script.
+Running from inside the directory - `cd crates/otto-ui/frontend && pnpm tauri dev` - works either
+way, see `crates/otto-ui/frontend/README.md`.)
 
 This runs the Vite dev server (full HMR) and the Tauri window together - the primary dev workflow.
 `cargo run -p otto-ui` also still works, but only against a previously-built `frontend/dist/` (no
 HMR); run `pnpm --dir crates/otto-ui/frontend build` first if you use it. For a release build,
-`pnpm --dir crates/otto-ui/frontend tauri build` builds the frontend and the platform installer
-together.
+`pnpm --dir crates/otto-ui/frontend exec tauri build` builds the frontend and the platform
+installer together.
 
 The dashboard's frontend (`crates/otto-ui/frontend/`) is Vite + React + TypeScript, styled with
 [Tailwind CSS](https://tailwindcss.com) v4 and [shadcn/ui](https://ui.shadcn.com) (Radix
