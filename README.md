@@ -20,11 +20,15 @@ your dashboard or terminal can render, not just prose to read - and which LLM is
 default, or any of ten other providers (OpenAI, Gemini, Groq, DeepSeek, Mistral, xAI, OpenRouter, Perplexity,
 Z.ai, or a fully local Ollama model) from the app's Models tab.
 
-Today that means GitHub - list open PRs, check CI/check-run status, open a PR from a branch - plus a first pass
-at the things around the edges of "get my engineering work done": voice in and out, a working-hours schedule so
-Otto isn't always-on, and a small daily nudge about your own PR habits. Deployments and calendar management are
-scaffolded and named in the roadmap below, not implemented yet - see the crate table for exactly what's real
-versus staged.
+Today that means GitHub (list open PRs, check CI/check-run status, open a PR from a branch), triggering and
+checking GitHub Actions workflow runs, and Google Calendar (upcoming meetings, conflict detection) - plus a
+first pass at the things around the edges of "get my engineering work done": voice in and out, a working-hours
+schedule so Otto isn't always-on, and a small daily nudge about your own PR habits. See the crate table below
+for exactly what's real versus staged.
+
+<p align="center">
+  <img src="docs/otto.png" alt="Otto's desktop app - sidebar navigation and the hero command bar" width="820" />
+</p>
 
 ## Highlights
 
