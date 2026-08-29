@@ -170,6 +170,15 @@ Typing `show me my open PRs` in either the CLI or the command bar:
    carries the structured data (used by the UI to render the PR panel) alongside the summary.
 4. The turn is appended to `history.jsonl` in the OS data directory (`~/.local/share/otto` on Linux).
 
+## CI
+
+`.github/workflows/ci.yml` builds, tests, and smoke-runs the whole workspace on Linux, macOS, and Windows on every
+push/PR to `main`. "Smoke-runs" means `otto-cli --help` specifically - a real functional run needs live Claude/
+GitHub credentials the workflow doesn't have, so this only proves the built binary actually starts on each
+platform (clap's `--help` exits before anything needs a credential). `otto-ui` isn't launched in CI: unlike the
+CLI it has no credential-free short-circuit (it builds its full `AgentLoop` before a window ever opens) and would
+also need a virtual display on Linux - both build-verified via the main build step, just not launched.
+
 ## Status
 
 `cargo check --workspace` is clean - every crate (`otto-core`, all four `otto-skill-*` crates, `otto-voice`,
