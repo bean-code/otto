@@ -106,14 +106,26 @@ impl SqliteStore {
             .map_err(|e| CoreError::History(e.to_string()))?;
         }
 
-        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 
     pub fn default_path() -> CoreResult<PathBuf> {
-        let dirs = directories::ProjectDirs::from("dev", "ayimdomnic", "otto")
-            .ok_or_else(|| CoreError::History("could not resolve a data directory for this platform".into()))?;
-        let dir = dirs.data_dir();
-        std::fs::create_dir_all(dir).map_err(|e| CoreError::History(e.to_string()))?;
+        let dir = crate::profiles::data_dir()?;
+        std::fs::create_dir_all(&dir).map_err(|e| CoreError::History(e.to_string()))?;
+        Ok(dir.join("otto.sqlite3"))
+    }
+
+    /// Where a non-`"local"` profile's activity/settings database lives -
+    /// `default_path()` (unchanged) is what `"local"` (the auto-migrated
+    /// pre-profiles installation) resolves to instead, so existing
+    /// installs need no data migration at all.
+    pub fn path_for_profile(profile_id: &str) -> CoreResult<PathBuf> {
+        let dir = crate::profiles::data_dir()?
+            .join("profiles")
+            .join(profile_id);
+        std::fs::create_dir_all(&dir).map_err(|e| CoreError::History(e.to_string()))?;
         Ok(dir.join("otto.sqlite3"))
     }
 
@@ -125,9 +137,13 @@ impl SqliteStore {
 
         tokio::task::spawn_blocking(move || -> CoreResult<Option<String>> {
             let conn = conn.lock().expect("store db mutex poisoned");
-            conn.query_row("SELECT value FROM settings WHERE key = ?1", params![key], |row| row.get(0))
-                .optional()
-                .map_err(|e| CoreError::History(e.to_string()))
+            conn.query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| CoreError::History(e.to_string()))
         })
         .await
         .map_err(|e| CoreError::History(e.to_string()))?
@@ -167,19 +183,31 @@ fn kind_from_str(s: &str) -> CoreResult<ActivityKind> {
         "command" => Ok(ActivityKind::Command),
         "growth_digest" => Ok(ActivityKind::GrowthDigest),
         "schedule" => Ok(ActivityKind::Schedule),
-        other => Err(CoreError::History(format!("unknown activity kind '{other}' in database"))),
+        other => Err(CoreError::History(format!(
+            "unknown activity kind '{other}' in database"
+        ))),
     }
 }
 
 #[async_trait]
 impl ActivityLog for SqliteStore {
     async fn record_command(&self, input: &str, turn: &AgentTurn) -> CoreResult<()> {
-        let steps_json = serde_json::to_string(&turn.steps).map_err(|e| CoreError::History(e.to_string()))?;
-        self.insert("command", input, &turn.reply, &steps_json, &turn.provider, &turn.model).await
+        let steps_json =
+            serde_json::to_string(&turn.steps).map_err(|e| CoreError::History(e.to_string()))?;
+        self.insert(
+            "command",
+            input,
+            &turn.reply,
+            &steps_json,
+            &turn.provider,
+            &turn.model,
+        )
+        .await
     }
 
     async fn record_event(&self, kind: ActivityKind, title: &str, detail: &str) -> CoreResult<()> {
-        self.insert(kind_to_str(kind), title, detail, "[]", "", "").await
+        self.insert(kind_to_str(kind), title, detail, "[]", "", "")
+            .await
     }
 
     async fn list_recent(&self, limit: usize) -> CoreResult<Vec<ActivityEntry>> {
@@ -204,7 +232,9 @@ impl ActivityLog for SqliteStore {
                     let steps_json: String = row.get(5)?;
                     let provider: String = row.get(6)?;
                     let model: String = row.get(7)?;
-                    Ok((id, timestamp, kind, title, detail, steps_json, provider, model))
+                    Ok((
+                        id, timestamp, kind, title, detail, steps_json, provider, model,
+                    ))
                 })
                 .map_err(|e| CoreError::History(e.to_string()))?;
 
@@ -216,9 +246,18 @@ impl ActivityLog for SqliteStore {
                     .map_err(|e| CoreError::History(e.to_string()))?
                     .with_timezone(&Utc);
                 let kind = kind_from_str(&kind)?;
-                let steps: Vec<AgentStep> =
-                    serde_json::from_str(&steps_json).map_err(|e| CoreError::History(e.to_string()))?;
-                entries.push(ActivityEntry { id, timestamp, kind, title, detail, steps, provider, model });
+                let steps: Vec<AgentStep> = serde_json::from_str(&steps_json)
+                    .map_err(|e| CoreError::History(e.to_string()))?;
+                entries.push(ActivityEntry {
+                    id,
+                    timestamp,
+                    kind,
+                    title,
+                    detail,
+                    steps,
+                    provider,
+                    model,
+                });
             }
             Ok(entries)
         })
@@ -292,8 +331,14 @@ mod tests {
     #[tokio::test]
     async fn records_and_lists_commands_newest_first() {
         let store = temp_store();
-        store.record_command("first command", &turn("first reply")).await.unwrap();
-        store.record_command("second command", &turn("second reply")).await.unwrap();
+        store
+            .record_command("first command", &turn("first reply"))
+            .await
+            .unwrap();
+        store
+            .record_command("second command", &turn("second reply"))
+            .await
+            .unwrap();
 
         let entries = store.list_recent(10).await.unwrap();
         assert_eq!(entries.len(), 2);
@@ -311,7 +356,10 @@ mod tests {
     async fn list_recent_respects_limit() {
         let store = temp_store();
         for i in 0..5 {
-            store.record_command(&format!("command {i}"), &turn("reply")).await.unwrap();
+            store
+                .record_command(&format!("command {i}"), &turn("reply"))
+                .await
+                .unwrap();
         }
 
         let entries = store.list_recent(2).await.unwrap();
@@ -323,12 +371,26 @@ mod tests {
     #[tokio::test]
     async fn mixes_commands_and_events_in_one_feed() {
         let store = temp_store();
-        store.record_command("show my prs", &turn("2 open PRs")).await.unwrap();
         store
-            .record_event(ActivityKind::GrowthDigest, "Growth digest", "You've merged 3 PRs without tests this week.")
+            .record_command("show my prs", &turn("2 open PRs"))
             .await
             .unwrap();
-        store.record_event(ActivityKind::Schedule, "Scheduled shutdown", "Active window ended at 18:00.").await.unwrap();
+        store
+            .record_event(
+                ActivityKind::GrowthDigest,
+                "Growth digest",
+                "You've merged 3 PRs without tests this week.",
+            )
+            .await
+            .unwrap();
+        store
+            .record_event(
+                ActivityKind::Schedule,
+                "Scheduled shutdown",
+                "Active window ended at 18:00.",
+            )
+            .await
+            .unwrap();
 
         let entries = store.list_recent(10).await.unwrap();
         assert_eq!(entries.len(), 3);
@@ -344,10 +406,16 @@ mod tests {
         assert_eq!(store.get_setting("model").await.unwrap(), None);
 
         store.set_setting("model", "claude-opus-5").await.unwrap();
-        assert_eq!(store.get_setting("model").await.unwrap(), Some("claude-opus-5".to_string()));
+        assert_eq!(
+            store.get_setting("model").await.unwrap(),
+            Some("claude-opus-5".to_string())
+        );
 
         store.set_setting("model", "claude-sonnet-5").await.unwrap();
-        assert_eq!(store.get_setting("model").await.unwrap(), Some("claude-sonnet-5".to_string()));
+        assert_eq!(
+            store.get_setting("model").await.unwrap(),
+            Some("claude-sonnet-5".to_string())
+        );
     }
 
     #[tokio::test]
@@ -380,14 +448,24 @@ mod tests {
         assert_eq!(entries[0].provider, "");
         assert_eq!(entries[0].model, "");
 
-        store.record_command("new command", &turn("new reply")).await.unwrap();
+        store
+            .record_command("new command", &turn("new reply"))
+            .await
+            .unwrap();
         let entries = store.list_recent(10).await.unwrap();
         assert_eq!(entries[0].provider, "anthropic");
     }
 
     fn uuid_like() -> String {
         use std::time::{SystemTime, UNIX_EPOCH};
-        format!("{}-{:?}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(), std::thread::current().id())
-            .replace(['(', ')', ' '], "")
+        format!(
+            "{}-{:?}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            std::thread::current().id()
+        )
+        .replace(['(', ')', ' '], "")
     }
 }

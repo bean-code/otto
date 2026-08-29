@@ -5,6 +5,8 @@ import type {
   AgentTurn,
   CredentialStatus,
   ModelInfo,
+  Preferences,
+  Profile,
   ProviderInfo,
   SelectedModel,
   SkillInfo,
@@ -75,4 +77,44 @@ export function speak(text: string): Promise<void> {
  */
 export function connectGoogleCalendar(): Promise<void> {
   return invoke<void>("connect_google_calendar_cmd");
+}
+
+export function listProfiles(): Promise<Profile[]> {
+  return invoke<Profile[]>("list_profiles");
+}
+
+/** `null` before any sign-in - the frontend shows the sign-in gate then. */
+export function getCurrentProfile(): Promise<Profile | null> {
+  return invoke<Profile | null>("get_current_profile");
+}
+
+/**
+ * Runs the GitHub Device Flow end to end: resolves once the user has
+ * entered the code and Otto has fetched their identity. Listen for the
+ * `"device-code"` Tauri event (fired as soon as the code is ready) to show
+ * it to the user while this promise is still pending.
+ */
+export function startGithubDeviceFlow(): Promise<Profile> {
+  return invoke<Profile>("start_github_device_flow");
+}
+
+export function signInWithPat(token: string): Promise<Profile> {
+  return invoke<Profile>("sign_in_with_pat", { token });
+}
+
+export function switchProfile(profileId: string): Promise<void> {
+  return invoke<void>("switch_profile", { profileId });
+}
+
+/** Returns to the sign-in gate without deleting the profile. */
+export function signOut(): Promise<void> {
+  return invoke<void>("sign_out");
+}
+
+export function getPreferences(): Promise<Preferences> {
+  return invoke<Preferences>("get_preferences");
+}
+
+export function setPreferences(preferences: Preferences): Promise<void> {
+  return invoke<void>("set_preferences", { preferences });
 }

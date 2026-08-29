@@ -32,5 +32,10 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }
 notify-rust = "4"
+# For opening github.com/login/device in the user's default browser during
+# the Device Flow sign-in - not a Tauri-specific opener since otto-cli (no
+# Tauri) uses the same crate for the identical flow.
+webbrowser = "1.2"
 dotenvy.workspace = true

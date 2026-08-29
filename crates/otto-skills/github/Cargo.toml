@@ -13,3 +13,8 @@ async-trait = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 octocrab = "0.54.1"
+# For the OAuth Device Flow endpoints (github.com/login/..., not the REST
+# API octocrab targets) and GET /user - plain reqwest, not octocrab, since
+# device_flow_start/poll happen before any token/client exists for
+# octocrab to authenticate with.
+reqwest = { workspace = true }

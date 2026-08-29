@@ -15,6 +15,14 @@ fn main() {
             "get_credential_status",
             "set_credential",
             "connect_google_calendar_cmd",
+            "list_profiles",
+            "get_current_profile",
+            "start_github_device_flow",
+            "sign_in_with_pat",
+            "switch_profile",
+            "sign_out",
+            "get_preferences",
+            "set_preferences",
         ]),
     ))
     .expect("failed to run tauri-build");

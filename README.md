@@ -49,7 +49,10 @@ for exactly what's real versus staged.
 - **Cross-platform by construction.** CI builds, tests, and smoke-runs the whole workspace on Linux, macOS, and
   Windows on every push - see the badge above.
 - **Set up from inside the app.** A native Settings panel (also reachable from the OS menu bar) writes API keys
-  and your GitHub token straight to the keychain - no editing a config file or restarting to pick them up.
+  straight to the keychain - no editing a config file or restarting to pick them up.
+- **Real accounts, not just an OS login.** Sign in with GitHub (Device Flow or a pasted token) to get your own
+  isolated credentials, activity history, and preferences - even when sharing one OS account with someone else.
+  Switch between signed-in profiles from the Sidebar without restarting.
 - **Real, queryable activity feed.** Every command, growth-digest note, and schedule event is persisted to a
   local SQLite database and readable back from an Activities tab in the app - built that way specifically so a
   future API layer over `otto-core` has real data to serve, not a log file to re-parse.
@@ -72,8 +75,8 @@ trait surface:
 
 | Crate | What it is |
 |---|---|
-| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name, groups by skill for the Skills tab), `AgentLoop`, `CredentialStore` (OS keychain), `ActivityLog`/`SqliteStore` (local SQLite - queryable, not a flat log; also holds small persisted settings like the selected model), `ActiveWindow` (working-hours scheduling), `PROVIDER_CATALOG`/`MODEL_CATALOG`, the growth-digest job. |
-| `otto-skill-github` | **Fully working.** List open PRs, check CI/check-run status, open a PR from a branch. Built on [`octocrab`](https://docs.rs/octocrab). |
+| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name, groups by skill for the Skills tab), `AgentLoop`, `CredentialStore` (OS keychain, per-profile), `ActivityLog`/`SqliteStore` (local SQLite - queryable, not a flat log; also holds small persisted settings like the selected model and preferences), `ProfileStore` (multi-user profile registry - see "Accounts & profiles" below), `ActiveWindow` (working-hours scheduling), `PROVIDER_CATALOG`/`MODEL_CATALOG`, the growth-digest job. |
+| `otto-skill-github` | **Fully working.** List open PRs, check CI/check-run status, open a PR from a branch. Built on [`octocrab`](https://docs.rs/octocrab). Also owns GitHub sign-in (`auth.rs` - Device Flow + identity lookup; see "Accounts & profiles"). |
 | `otto-skill-deploy` | **Fully working.** Trigger a GitHub Actions workflow run and check the status of its latest run, via [`octocrab`](https://docs.rs/octocrab) - reuses the same GitHub token as `otto-skill-github`. |
 | `otto-skill-calendar` | **Fully working.** List upcoming meetings and flag overlapping ones, against Google Calendar via OAuth2 (PKCE) + Calendar API v3. See "Google Calendar setup" below. |
 | `otto-skill-notify` | **Fully working.** Desktop notifications via [`notify-rust`](https://docs.rs/notify-rust). |
@@ -122,19 +125,71 @@ The system prompt has two parts: fixed operational instructions (`otto-core::age
 and how to use tools), and a persona paragraph appended after it (`otto-core::DEFAULT_PERSONA`) that tells Otto who
 it's talking to, so replies land at the right technical altitude and tone instead of a generic assistant voice.
 Override it per-user with `OTTO_PERSONA` (both `otto-cli` and `otto-ui` read it the same way); an empty string
-disables the persona addition entirely.
+disables the persona addition entirely. It's also editable per-profile from `otto-ui`'s Settings > Preferences
+(persisted per profile, overriding `OTTO_PERSONA`) - see "Accounts & profiles" below.
+
+## Accounts & profiles
+
+Otto supports two layers of data isolation, stacked:
+
+- **Per-OS-account isolation**, which you get for free just by how `otto-core::KeyringStore`'s OS keychain and
+  `SqliteStore::default_path()`'s [`directories`](https://docs.rs/directories)-based data directory work - both
+  are already scoped to the OS user running Otto, so two people with separate OS logins on the same machine never
+  see each other's credentials or activity.
+- **Full multi-user profiles** within *one* OS session - for people who share a single OS account (a shared
+  workstation, a family login) but still want separate credentials, activity history, and preferences. Each
+  profile gets its own SQLite database (`{data_dir}/profiles/{id}/otto.sqlite3`) and its own OS-keychain service
+  namespace (`otto-assistant-{id}`), tracked by `otto-core::ProfileStore` in a small top-level
+  `profiles.sqlite3` registry.
+
+### Signing in
+
+A profile is created by signing in with GitHub - either the **Device Flow** (`otto-ui`'s Sidebar profile menu, or
+`otto --login` from `otto-cli`: shows a short code, you enter it at github.com/login/device, Otto polls until
+you finish) or by **pasting an existing personal access token** (`otto-ui`'s "Paste a token instead", or
+`otto --login-with-token <token>`). Both resolve your GitHub identity (`GET /user`) and use it as the profile,
+and both store the token as that profile's `github-token` credential - the same one `otto-skill-github`/
+`otto-skill-deploy` already read. Signing in *is* how that credential gets set now, not a separate paste field in
+Settings.
+
+`otto-ui`'s Sidebar shows the signed-in profile (avatar + name) with a menu to switch between known profiles,
+sign in another account, or sign out (which returns to the sign-in gate without deleting the profile or its
+data - nothing is lost). `otto-cli` mirrors this: `otto --whoami` shows who's signed in, `otto --switch-profile
+<id>` switches.
+
+**Upgrading from before this feature shipped?** Your existing database and keychain entries are auto-migrated
+into a `"local"` profile at the exact same paths (`SqliteStore::default_path()`, the unsuffixed
+`otto-assistant` keychain service) - zero data loss, no forced re-sign-in. You'll see an optional prompt to sign
+in with GitHub, not a gate.
+
+### GitHub OAuth App setup (for Device Flow)
+
+Pasting a token needs no setup at all. "Sign in with GitHub" (the Device Flow) needs an OAuth App of your own -
+the same "bring your own OAuth client" pattern as Google Calendar below, so nothing about your sign-in goes
+through infrastructure Otto controls:
+
+1. In GitHub, go to **Settings > Developer settings > OAuth Apps > New OAuth App** (or
+   [create one directly](https://github.com/settings/applications/new)). Any name/homepage URL works - the
+   callback URL field isn't used by the Device Flow, so a placeholder is fine.
+2. On the app's settings page, enable **Device Flow** ("Enable Device Flow", near the bottom) - it's off by
+   default and the flow fails without it.
+3. Copy the **Client ID** and set `OTTO_GITHUB_CLIENT_ID` (in `.env`, or `--github-client-id` for `otto-cli`) -
+   no client secret is needed for the Device Flow.
 
 ## Configuring credentials
 
 Nothing is ever written to a plaintext config file. Credentials are read through `otto-core::KeyringStore`, which
-stores/reads secrets in the OS keychain via the [`keyring`](https://docs.rs/keyring) crate, under the service name
-`otto-assistant`. Each provider in `otto_core::PROVIDER_CATALOG` that needs an API key uses one consistent key
-name - `"{provider}-api-key"` (`anthropic-api-key`, `openai-api-key`, `gemini-api-key`, and so on; see
-`otto_core::credential_key`) - plus one more that isn't an LLM provider at all:
+stores/reads secrets in the OS keychain via the [`keyring`](https://docs.rs/keyring) crate, under a service name
+scoped to the current profile - `otto-assistant` for the default/auto-migrated `"local"` profile,
+`otto-assistant-{profile-id}` for every other one (see "Accounts & profiles" above). Each provider in
+`otto_core::PROVIDER_CATALOG` that needs an API key uses one consistent key name -
+`"{provider}-api-key"` (`anthropic-api-key`, `openai-api-key`, `gemini-api-key`, and so on; see
+`otto_core::credential_key`) - plus two more that aren't LLM providers:
 
 - `github-token` - a GitHub personal access token (needs `repo` scope for private repos; `public_repo` is enough
   for public ones, plus `workflow` if you want `otto-skill-deploy`'s trigger/status tools) with permission to
-  read PRs/checks and open PRs on the repos you point it at.
+  read PRs/checks and open PRs on the repos you point it at. **Set by signing in** ("Accounts & profiles" above),
+  not pasted in Settings - either the Device Flow or pasting a token both end up writing this same key.
 - `google-calendar-client-id` - see "Google Calendar setup" below; not an API key you paste and forget, it's
   paired with a one-time OAuth connect step.
 
@@ -143,7 +198,7 @@ server, always available once its Cargo feature is compiled in; if nothing's lis
 against it just fails at call time, the same as any other unreachable server).
 
 **In `otto-ui`, the easiest way is Settings** - the "Settings" item at the bottom of the sidebar, or "Otto >
-Settings..." in the native menu bar. It lists every provider with a status ("configured"/"not set") and a
+Settings..." in the native menu bar. It lists every LLM provider with a status ("configured"/"not set") and a
 password field each; paste a key in and hit Save, and it's written straight to the keychain and picked up
 immediately (the app rebuilds its provider registry on save - no restart needed). The toolbar's status pills
 show at a glance whether the *currently selected* model's provider (and GitHub) are configured. `otto-ui`
@@ -172,16 +227,15 @@ a shared one safely, and this way nothing about your calendar ever goes through 
 
 Read-only (`calendar.events.readonly`) - Otto can list and read your events, never create/edit/delete them.
 
-For `otto-cli`, or to script it, set them with any keychain tool that writes to the `otto-assistant` service, or
-from Rust:
+For `otto-cli`, or to script it, set them with any keychain tool that writes to the `otto-assistant` service (or
+`otto-assistant-{profile-id}` for a non-`"local"` profile), or from Rust:
 
 ```rust
-use otto_core::{CredentialStore, KeyringStore};
+use otto_core::{CredentialStore, KeyringStore, LOCAL_PROFILE_ID};
 
-let store = KeyringStore::new();
+let store = KeyringStore::for_profile(LOCAL_PROFILE_ID);
 store.set("anthropic-api-key", "sk-ant-...").await?;
 store.set("openai-api-key", "sk-...").await?;
-store.set("github-token", "ghp_...").await?;
 ```
 
 **No keychain daemon available (headless Linux/WSL with no Secret Service running)?** A keychain miss falls back to
@@ -216,6 +270,20 @@ cargo run -p otto-cli -- --provider openai --model gpt-5.6-terra "show me my ope
 name one. `--provider`/`--model` (or `OTTO_PROVIDER`/`OTTO_MODEL`) pick the LLM; if neither the flag nor the env
 var is set, the CLI falls back to whatever's currently selected in `otto-ui` (same local database), and only
 falls back further to `anthropic`/`claude-opus-5` if nothing's ever been selected anywhere.
+
+Account commands (see "Accounts & profiles" above) - each exits immediately after running, without needing a
+command string:
+
+```sh
+cargo run -p otto-cli -- --login                          # GitHub Device Flow sign-in
+cargo run -p otto-cli -- --login-with-token ghp_...        # sign in with an existing token instead
+cargo run -p otto-cli -- --whoami                          # who's currently signed in
+cargo run -p otto-cli -- --switch-profile octocat          # switch to an already-signed-in profile
+```
+
+Every other command reads/writes the *current* profile's own database and keychain namespace automatically -
+`"local"` (the auto-migrated default) if nobody's signed in, so the CLI keeps working unauthenticated exactly as
+before for anyone not using GitHub sign-in.
 
 ### Desktop app (Tauri)
 
@@ -490,12 +558,16 @@ from now.
 `cargo test --workspace` passes too - including real (not just compiled) coverage of `SqliteStore` in
 `crates/otto-core/src/store.rs`: recording and listing commands newest-first, respecting the `limit`, mixing
 commands with growth-digest/schedule events in one feed, and a settings round-trip/overwrite - all against a
-temp on-disk database, not mocks.
+temp on-disk database, not mocks. `ProfileStore` (`crates/otto-core/src/profiles.rs`) gets the same treatment:
+a fresh install has no current profile, a pre-profiles `otto.sqlite3` auto-migrates into `"local"` and becomes
+current, upsert-then-switch, and sign-out-without-deleting - each against a real temp SQLite file, with the
+directory passed explicitly (`open_at`) so parallel tests never race a shared env var.
 
 The frontend has its own suite - `pnpm --dir crates/otto-ui/frontend test` (Vitest + React Testing Library, see
 that directory's README) - covering the parts most likely to break silently: the status-refresh hook, the
-command bar's submit/error/push-to-talk/talk-back flows, sidebar navigation, and the Settings dialog's
-credential-save and Google Calendar connect flows. Both suites run in CI on all three platforms.
+command bar's submit/error/push-to-talk/talk-back flows, sidebar navigation and its profile-switch menu, the
+sign-in gate's device-flow/paste-token paths, and the Settings dialog's credential-save, Preferences, and Google
+Calendar connect flows. Both suites run in CI on all three platforms.
 
 Known gaps, tracked rather than hidden: the growth digest only looks at open PRs, not a fuller activity history
 (commits, merged/closed PRs) even across the repos `OTTO_GROWTH_REPOS` names. Not blocked on anything - it's the

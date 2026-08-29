@@ -3,14 +3,39 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { Sidebar } from "@/components/Sidebar";
+import type { Profile } from "@/lib/types";
 
-function setup(activeTab: "dashboard" | "activities" | "models" | "skills" = "dashboard") {
+const profile: Profile = {
+  id: "octocat",
+  display_name: "The Octocat",
+  avatar_url: null,
+  github_login: "octocat",
+  created_at: "2026-01-01T00:00:00Z",
+};
+
+function setup(
+  activeTab: "dashboard" | "activities" | "models" | "skills" = "dashboard",
+  overrides: Partial<{ currentProfile: Profile | null; profiles: Profile[] }> = {},
+) {
   const onTabChange = vi.fn();
   const onSettingsClick = vi.fn();
+  const onSwitchProfile = vi.fn();
+  const onSignInAnother = vi.fn();
+  const onSignOut = vi.fn();
   render(
-    <Sidebar activeTab={activeTab} onTabChange={onTabChange} onSettingsClick={onSettingsClick} modelLabel="Anthropic · claude-opus-5" />,
+    <Sidebar
+      activeTab={activeTab}
+      onTabChange={onTabChange}
+      onSettingsClick={onSettingsClick}
+      modelLabel="Anthropic · claude-opus-5"
+      currentProfile={overrides.currentProfile}
+      profiles={overrides.profiles}
+      onSwitchProfile={onSwitchProfile}
+      onSignInAnother={onSignInAnother}
+      onSignOut={onSignOut}
+    />,
   );
-  return { onTabChange, onSettingsClick };
+  return { onTabChange, onSettingsClick, onSwitchProfile, onSignInAnother, onSignOut };
 }
 
 describe("Sidebar", () => {
@@ -57,5 +82,45 @@ describe("Sidebar", () => {
     await userEvent.click(screen.getByRole("button", { name: /Settings/ }));
     expect(onSettingsClick).toHaveBeenCalledOnce();
     expect(onTabChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("Sidebar - profile menu", () => {
+  it("shows 'Otto' when nobody is signed in", () => {
+    setup();
+    expect(screen.getByRole("button", { name: "Otto" })).toBeInTheDocument();
+  });
+
+  it("shows the signed-in profile's display name", () => {
+    setup("dashboard", { currentProfile: profile, profiles: [profile] });
+    expect(screen.getByRole("button", { name: /The Octocat/ })).toBeInTheDocument();
+  });
+
+  it("lists known profiles and switching one calls onSwitchProfile", async () => {
+    const other: Profile = { ...profile, id: "other", display_name: "Other Account" };
+    const { onSwitchProfile } = setup("dashboard", { currentProfile: profile, profiles: [profile, other] });
+
+    await userEvent.click(screen.getByRole("button", { name: /The Octocat/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Other Account/ }));
+
+    expect(onSwitchProfile).toHaveBeenCalledWith("other");
+  });
+
+  it("'Sign in another account' calls onSignInAnother", async () => {
+    const { onSignInAnother } = setup("dashboard", { currentProfile: profile, profiles: [profile] });
+
+    await userEvent.click(screen.getByRole("button", { name: /The Octocat/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Sign in another account" }));
+
+    expect(onSignInAnother).toHaveBeenCalledOnce();
+  });
+
+  it("'Sign out' calls onSignOut", async () => {
+    const { onSignOut } = setup("dashboard", { currentProfile: profile, profiles: [profile] });
+
+    await userEvent.click(screen.getByRole("button", { name: /The Octocat/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+    expect(onSignOut).toHaveBeenCalledOnce();
   });
 });

@@ -18,6 +18,14 @@
     "allow-get-greeting-name",
     "allow-get-credential-status",
     "allow-set-credential",
-    "allow-connect-google-calendar-cmd"
+    "allow-connect-google-calendar-cmd",
+    "allow-list-profiles",
+    "allow-get-current-profile",
+    "allow-start-github-device-flow",
+    "allow-sign-in-with-pat",
+    "allow-switch-profile",
+    "allow-sign-out",
+    "allow-get-preferences",
+    "allow-set-preferences"
   ]
 }

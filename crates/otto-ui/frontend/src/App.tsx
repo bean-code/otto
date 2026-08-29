@@ -1,24 +1,49 @@
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { AuthGate } from "@/components/AuthGate";
 import { ActivitiesView } from "@/components/views/ActivitiesView";
 import { DashboardView } from "@/components/views/DashboardView";
 import { ModelsView } from "@/components/views/ModelsView";
 import { SkillsView } from "@/components/views/SkillsView";
 import { Sidebar } from "@/components/Sidebar";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { TopBar } from "@/components/TopBar";
 import { useOttoStatus } from "@/hooks/useOttoStatus";
+import { getCurrentProfile, listProfiles, signOut, switchProfile } from "@/lib/tauri";
 import type { Tab } from "@/lib/tabs";
+import type { Profile } from "@/lib/types";
+import { errorMessage } from "@/lib/utils";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // `undefined` = still checking who's signed in; `null` = nobody is (the
+  // sign-in gate shows). Distinct from `null` so the gate doesn't flash
+  // before the initial `getCurrentProfile` call resolves.
+  const [currentProfile, setCurrentProfile] = useState<Profile | null | undefined>(undefined);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
   const { status, refresh, providerName } = useOttoStatus();
 
+  const refreshProfiles = useCallback(async () => {
+    const list = await listProfiles();
+    setProfiles(list);
+    return list;
+  }, []);
+
   useEffect(() => {
+    getCurrentProfile()
+      .then(setCurrentProfile)
+      .catch(() => setCurrentProfile(null));
+    refreshProfiles().catch(() => {});
+  }, [refreshProfiles]);
+
+  useEffect(() => {
+    if (!currentProfile) return;
     refresh().then((result) => {
       const selectedKey = `${result.selected?.provider}-api-key`;
       const modelConfigured = result.credentialStatus.find((s) => s.key === selectedKey)?.configured ?? true;
@@ -27,12 +52,12 @@ export default function App() {
         toast.info("Finish setting up Otto", {
           description: !modelConfigured
             ? "Add an API key for your selected model's provider in Settings."
-            : "Add a GitHub token in Settings to enable the GitHub skill.",
+            : "Sign in with GitHub from the Sidebar's profile menu to enable the GitHub skill.",
           duration: 8000,
         });
       }
     });
-  }, [refresh]);
+  }, [currentProfile, refresh]);
 
   useEffect(() => {
     const unlisten = listen("open-settings", () => setSettingsOpen(true));
@@ -40,6 +65,32 @@ export default function App() {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  async function handleSignedIn(profile: Profile) {
+    setCurrentProfile(profile);
+    setAddAccountOpen(false);
+    await Promise.all([refreshProfiles(), refresh()]);
+  }
+
+  async function handleSwitchProfile(profileId: string) {
+    if (profileId === currentProfile?.id) return;
+    try {
+      await switchProfile(profileId);
+      setCurrentProfile(await getCurrentProfile());
+      await refresh();
+    } catch (err) {
+      toast.error("Couldn't switch profile", { description: errorMessage(err) });
+    }
+  }
+
+  async function handleSignOut() {
+    try {
+      await signOut();
+      setCurrentProfile(null);
+    } catch (err) {
+      toast.error("Couldn't sign out", { description: errorMessage(err) });
+    }
+  }
 
   const modelPill = useMemo(() => {
     if (!status.selected) return { ok: false, label: "Model" };
@@ -57,6 +108,21 @@ export default function App() {
 
   const modelLabel = status.selected ? `${providerName(status.selected.provider)} · ${status.selected.model}` : "Choose a model";
 
+  if (currentProfile === undefined) {
+    // Still checking who's signed in - nothing to show yet, and showing
+    // either the gate or the dashboard here would just flash and flip.
+    return <div className="h-screen bg-bg" />;
+  }
+
+  if (currentProfile === null) {
+    return (
+      <>
+        <AuthGate onSignedIn={handleSignedIn} />
+        <Toaster position="top-right" />
+      </>
+    );
+  }
+
   return (
     <div className="flex h-screen min-h-0 flex-1 bg-bg text-ink antialiased">
       <Sidebar
@@ -64,6 +130,11 @@ export default function App() {
         onTabChange={setActiveTab}
         onSettingsClick={() => setSettingsOpen(true)}
         modelLabel={modelLabel}
+        currentProfile={currentProfile}
+        profiles={profiles}
+        onSwitchProfile={handleSwitchProfile}
+        onSignInAnother={() => setAddAccountOpen(true)}
+        onSignOut={handleSignOut}
       />
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -87,6 +158,16 @@ export default function App() {
         credentialStatus={status.credentialStatus}
         onSaved={refresh}
       />
+
+      <Dialog open={addAccountOpen} onOpenChange={setAddAccountOpen}>
+        <DialogContent className="w-[380px] max-w-[380px] rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle>Sign in another account</DialogTitle>
+          </DialogHeader>
+          <AuthGate embedded onSignedIn={handleSignedIn} />
+        </DialogContent>
+      </Dialog>
+
       <Toaster position="top-right" />
     </div>
   );

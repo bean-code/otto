@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use otto_core::{CoreError, CoreResult, CredentialStore, Skill, SkillOutcome, ToolSpec};
 use octocrab::params::repos::Commitish;
 use octocrab::Octocrab;
+use otto_core::{CoreError, CoreResult, CredentialStore, Skill, SkillOutcome, ToolSpec};
 use serde_json::{json, Value};
 use tokio::sync::OnceCell;
+
+pub mod auth;
+pub use auth::{
+    device_flow_poll, device_flow_start, fetch_identity, DeviceFlowSession, GithubIdentity,
+};
 
 const CREDENTIAL_KEY: &str = "github-token";
 
@@ -50,13 +55,16 @@ impl GithubSkill {
             .or_else(|| self.default_repo.clone())
             .ok_or_else(|| CoreError::InvalidInput {
                 tool: "github".into(),
-                message: "no 'repo' given and no default repo configured; expected \"owner/name\"".into(),
+                message: "no 'repo' given and no default repo configured; expected \"owner/name\""
+                    .into(),
             })?;
 
-        let (owner, name) = repo_str.split_once('/').ok_or_else(|| CoreError::InvalidInput {
-            tool: "github".into(),
-            message: format!("'{repo_str}' is not a valid \"owner/name\" repo"),
-        })?;
+        let (owner, name) = repo_str
+            .split_once('/')
+            .ok_or_else(|| CoreError::InvalidInput {
+                tool: "github".into(),
+                message: format!("'{repo_str}' is not a valid \"owner/name\" repo"),
+            })?;
 
         Ok((owner.to_string(), name.to_string()))
     }
@@ -110,9 +118,16 @@ impl GithubSkill {
                     format!(
                         "#{} {}{} - by {}",
                         pr.number,
-                        if pr.draft.unwrap_or(false) { "[draft] " } else { "" },
+                        if pr.draft.unwrap_or(false) {
+                            "[draft] "
+                        } else {
+                            ""
+                        },
                         pr.title.clone().unwrap_or_default(),
-                        pr.user.as_ref().map(|u| u.login.as_str()).unwrap_or("unknown"),
+                        pr.user
+                            .as_ref()
+                            .map(|u| u.login.as_str())
+                            .unwrap_or("unknown"),
                     )
                 })
                 .collect();
@@ -159,18 +174,22 @@ impl GithubSkill {
             .check_runs
             .iter()
             .map(|run| {
-                let state = run.conclusion.clone().unwrap_or_else(|| "in_progress".to_string());
+                let state = run
+                    .conclusion
+                    .clone()
+                    .unwrap_or_else(|| "in_progress".to_string());
                 json!({ "name": run.name, "state": state })
             })
             .collect();
 
         let overall = if runs.check_runs.is_empty() {
             "no_checks"
-        } else if runs
-            .check_runs
-            .iter()
-            .any(|r| matches!(r.conclusion.as_deref(), Some("failure") | Some("cancelled") | Some("timed_out")))
-        {
+        } else if runs.check_runs.iter().any(|r| {
+            matches!(
+                r.conclusion.as_deref(),
+                Some("failure") | Some("cancelled") | Some("timed_out")
+            )
+        }) {
             "failing"
         } else if runs.check_runs.iter().any(|r| r.conclusion.is_none()) {
             "pending"
@@ -180,7 +199,13 @@ impl GithubSkill {
 
         let check_summary = checks
             .iter()
-            .map(|c| format!("{} = {}", c["name"].as_str().unwrap_or("?"), c["state"].as_str().unwrap_or("?")))
+            .map(|c| {
+                format!(
+                    "{} = {}",
+                    c["name"].as_str().unwrap_or("?"),
+                    c["state"].as_str().unwrap_or("?")
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -212,8 +237,15 @@ impl GithubSkill {
                 message: "missing required field 'head' (the branch to open the PR from)".into(),
             })?
             .to_string();
-        let title = input.get("title").and_then(Value::as_str).unwrap_or(&head).to_string();
-        let body = input.get("body").and_then(Value::as_str).map(str::to_string);
+        let title = input
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or(&head)
+            .to_string();
+        let body = input
+            .get("body")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let draft = input.get("draft").and_then(Value::as_bool);
 
         let client = self.client().await?;
@@ -239,7 +271,11 @@ impl GithubSkill {
         }
 
         let pr = builder.send().await.map_err(|e| self.failed(e))?;
-        let url = pr.html_url.as_ref().map(|u| u.to_string()).unwrap_or_default();
+        let url = pr
+            .html_url
+            .as_ref()
+            .map(|u| u.to_string())
+            .unwrap_or_default();
 
         Ok(SkillOutcome::new(
             format!(

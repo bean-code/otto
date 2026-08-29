@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
@@ -11,25 +12,29 @@ use llmprism::providers::openai_compatible::{
 };
 use llmprism::Registry as LlmRegistry;
 use otto_core::{
-    credential_key, AgentLoop, CredentialStore, KeyringStore, SkillRegistry, SqliteStore,
-    DEFAULT_PERSONA,
+    credential_key, AgentLoop, CredentialStore, KeyringStore, Profile, ProfileStore, SkillRegistry,
+    SqliteStore, DEFAULT_PERSONA, LOCAL_PROFILE_ID,
 };
 use otto_skill_calendar::{connect_google_calendar, CalendarSkill};
 use otto_skill_deploy::DeploySkill;
-use otto_skill_github::GithubSkill;
+use otto_skill_github::{device_flow_poll, device_flow_start, fetch_identity, GithubSkill};
 use otto_skill_notify::NotifySkill;
 
 const DEFAULT_PROVIDER: &str = "anthropic";
 const DEFAULT_MODEL: &str = "claude-opus-5";
+const GITHUB_KEY: &str = "github-token";
 const MODEL_PROVIDER_SETTING_KEY: &str = "model_provider";
 const MODEL_ID_SETTING_KEY: &str = "model_id";
+const PERSONA_SETTING_KEY: &str = "persona_override";
+const NOTIFICATIONS_ENABLED_KEY: &str = "notifications_enabled";
 
 /// Otto - a personal automation assistant for your professional life.
 #[derive(Parser)]
 #[command(name = "otto", version, about)]
 struct Cli {
     /// Natural-language command, e.g. "show me my open PRs". Required unless
-    /// --connect-google-calendar is given.
+    /// --connect-google-calendar, --login, --login-with-token, --whoami, or
+    /// --switch-profile is given.
     #[arg(trailing_var_arg = true)]
     input: Vec<String>,
 
@@ -40,6 +45,33 @@ struct Cli {
     /// google-calendar-client-id to already be set (see the README).
     #[arg(long)]
     connect_google_calendar: bool,
+
+    /// Sign in with GitHub via the Device Flow (prints a code and a URL to
+    /// visit, then waits for you to enter it) and exit. Requires
+    /// --github-client-id / OTTO_GITHUB_CLIENT_ID to be set - see the
+    /// README's GitHub OAuth App setup section.
+    #[arg(long)]
+    login: bool,
+
+    /// Sign in with an existing GitHub personal access token instead of the
+    /// device flow, and exit.
+    #[arg(long, value_name = "TOKEN")]
+    login_with_token: Option<String>,
+
+    /// Print the currently signed-in profile (or that you're not signed in)
+    /// and exit.
+    #[arg(long)]
+    whoami: bool,
+
+    /// Switch the active profile to an already-signed-in one (see --whoami
+    /// and the otto-ui Sidebar for known profile ids) and exit.
+    #[arg(long, value_name = "PROFILE_ID")]
+    switch_profile: Option<String>,
+
+    /// The GitHub OAuth App client id used by --login. The app must have
+    /// Device Flow enabled - see the README.
+    #[arg(long, env = "OTTO_GITHUB_CLIENT_ID")]
+    github_client_id: Option<String>,
 
     /// Default "owner/name" repo for GitHub commands that don't name one.
     #[arg(long, env = "OTTO_DEFAULT_REPO")]
@@ -80,6 +112,43 @@ fn register_provider(llm: &mut LlmRegistry, id: &str, api_key: String) {
     }
 }
 
+/// Where a profile's `SqliteStore` lives - mirrors `otto-ui`'s own helper of
+/// the same name. `LOCAL_PROFILE_ID` (the auto-migrated pre-profiles
+/// install) resolves to the unchanged, unscoped `default_path()`.
+fn store_path_for(profile_id: &str) -> otto_core::CoreResult<PathBuf> {
+    if profile_id == LOCAL_PROFILE_ID {
+        SqliteStore::default_path()
+    } else {
+        SqliteStore::path_for_profile(profile_id)
+    }
+}
+
+/// Shared tail of `--login` and `--login-with-token`: fetch identity,
+/// upsert + switch to the profile, and store the token under that
+/// profile's own keychain namespace.
+async fn complete_github_sign_in(
+    profile_store: &ProfileStore,
+    token: &str,
+) -> anyhow::Result<Profile> {
+    let identity = fetch_identity(token).await?;
+    let profile = Profile {
+        id: identity.login.clone(),
+        display_name: identity
+            .name
+            .clone()
+            .unwrap_or_else(|| identity.login.clone()),
+        avatar_url: identity.avatar_url.clone(),
+        github_login: Some(identity.login.clone()),
+        created_at: chrono::Utc::now(),
+    };
+    profile_store.upsert(&profile)?;
+    profile_store.set_current(&profile.id)?;
+    KeyringStore::for_profile(&profile.id)
+        .set(GITHUB_KEY, token)
+        .await?;
+    Ok(profile)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Loads `.env` (searched from the current directory upward) into the
@@ -93,7 +162,61 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    let credentials: Arc<dyn CredentialStore> = Arc::new(KeyringStore::new());
+    let profile_store = ProfileStore::open()?;
+
+    if cli.login {
+        let client_id = cli.github_client_id.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "--github-client-id (or OTTO_GITHUB_CLIENT_ID) is required for --login - see the README"
+            )
+        })?;
+        let session = device_flow_start(&client_id).await?;
+        println!(
+            "Go to {} and enter this code: {}",
+            session.verification_uri, session.user_code
+        );
+        let _ = webbrowser::open(&session.verification_uri);
+        let token = device_flow_poll(&client_id, &session).await?;
+        let profile = complete_github_sign_in(&profile_store, &token).await?;
+        println!("Signed in as {} ({}).", profile.display_name, profile.id);
+        return Ok(());
+    }
+
+    if let Some(token) = &cli.login_with_token {
+        let profile = complete_github_sign_in(&profile_store, token.trim()).await?;
+        println!("Signed in as {} ({}).", profile.display_name, profile.id);
+        return Ok(());
+    }
+
+    if cli.whoami {
+        match profile_store.current()? {
+            Some(profile) => println!("Signed in as {} ({}).", profile.display_name, profile.id),
+            None => {
+                println!("Not signed in - run `otto --login` or `otto --login-with-token <token>`.")
+            }
+        }
+        return Ok(());
+    }
+
+    if let Some(profile_id) = &cli.switch_profile {
+        profile_store.get(profile_id)?.ok_or_else(|| {
+            anyhow::anyhow!("unknown profile '{profile_id}' - see `otto --whoami`")
+        })?;
+        profile_store.set_current(profile_id)?;
+        println!("Switched to {profile_id}.");
+        return Ok(());
+    }
+
+    // Every command below reads/writes the *current* profile's own store
+    // and keychain namespace - `LOCAL_PROFILE_ID` (auto-migrated from a
+    // pre-profiles install, or a genuine fresh install that's never signed
+    // in) if nothing is current, so the CLI keeps working unauthenticated
+    // exactly as before for anyone not using GitHub sign-in.
+    let profile_id = profile_store
+        .current()?
+        .map(|p| p.id)
+        .unwrap_or_else(|| LOCAL_PROFILE_ID.to_string());
+    let credentials: Arc<dyn CredentialStore> = Arc::new(KeyringStore::for_profile(&profile_id));
 
     if cli.connect_google_calendar {
         connect_google_calendar(&*credentials).await?;
@@ -106,7 +229,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let input = cli.input.join(" ");
 
-    let store = Arc::new(SqliteStore::open(SqliteStore::default_path()?)?);
+    let store = Arc::new(SqliteStore::open(store_path_for(&profile_id)?)?);
 
     // Precedence: --provider/--model flag > OTTO_PROVIDER/OTTO_MODEL env >
     // whatever's selected in otto-ui's Settings (same local database) >
@@ -145,9 +268,17 @@ async fn main() -> anyhow::Result<()> {
     )));
     registry.register(Arc::new(DeploySkill::new(credentials.clone(), cli.repo)));
     registry.register(Arc::new(CalendarSkill::new(credentials.clone())));
-    registry.register(Arc::new(NotifySkill::new()));
+    let notifications_enabled = store
+        .get_setting(NOTIFICATIONS_ENABLED_KEY)
+        .await?
+        .map(|v| v == "true")
+        .unwrap_or(true);
+    registry.register(Arc::new(NotifySkill::new(notifications_enabled)));
 
-    let persona = std::env::var("OTTO_PERSONA").unwrap_or_else(|_| DEFAULT_PERSONA.to_string());
+    let persona = match store.get_setting(PERSONA_SETTING_KEY).await? {
+        Some(persona) => persona,
+        None => std::env::var("OTTO_PERSONA").unwrap_or_else(|_| DEFAULT_PERSONA.to_string()),
+    };
     let agent = AgentLoop::new(
         llm,
         provider_info.id,

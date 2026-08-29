@@ -3,18 +3,23 @@ use otto_core::{CoreError, CoreResult, Skill, SkillOutcome, ToolSpec};
 use serde_json::{json, Value};
 
 /// Desktop notifications, so the agent loop (or another skill) can alert
-/// the user outside of the command bar - e.g. "CI just went red."
-pub struct NotifySkill;
+/// the user outside of the command bar - e.g. "CI just went red." `enabled`
+/// is the user's Preferences toggle: when off, `notify_desktop` succeeds
+/// without actually showing anything, so the agent doesn't see an error
+/// just because the user opted out.
+pub struct NotifySkill {
+    enabled: bool,
+}
 
 impl NotifySkill {
-    pub fn new() -> Self {
-        Self
+    pub fn new(enabled: bool) -> Self {
+        Self { enabled }
     }
 }
 
 impl Default for NotifySkill {
     fn default() -> Self {
-        Self::new()
+        Self::new(true)
     }
 }
 
@@ -61,6 +66,15 @@ impl Skill for NotifySkill {
                 message: "missing required field 'message'".into(),
             })?
             .to_string();
+
+        if !self.enabled {
+            return Ok(SkillOutcome::new(
+                format!(
+                    "Notifications are disabled in Preferences - skipped: \"{title}\" - {message}"
+                ),
+                json!({ "title": title, "message": message, "shown": false }),
+            ));
+        }
 
         let (title_owned, message_owned) = (title.clone(), message.clone());
         tokio::task::spawn_blocking(move || {

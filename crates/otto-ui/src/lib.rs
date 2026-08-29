@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use llmprism::providers::anthropic::AnthropicProvider;
@@ -11,15 +12,15 @@ use llmprism::providers::openai_compatible::{
 use llmprism::Registry as LlmRegistry;
 use otto_core::{
     credential_key, ActiveWindow, ActivityEntry, ActivityKind, ActivityLog, AgentLoop, AgentTurn,
-    CredentialStore, KeyringStore, ModelInfo, ProviderInfo, SkillInfo, SkillRegistry, SqliteStore,
-    DEFAULT_PERSONA, MODEL_CATALOG, PROVIDER_CATALOG,
+    CredentialStore, KeyringStore, ModelInfo, Profile, ProfileStore, ProviderInfo, SkillInfo,
+    SkillRegistry, SqliteStore, DEFAULT_PERSONA, LOCAL_PROFILE_ID, MODEL_CATALOG, PROVIDER_CATALOG,
 };
 use otto_skill_calendar::{connect_google_calendar, CalendarSkill};
 use otto_skill_deploy::DeploySkill;
-use otto_skill_github::GithubSkill;
+use otto_skill_github::{device_flow_poll, device_flow_start, fetch_identity, GithubSkill};
 use otto_skill_notify::NotifySkill;
 use otto_voice::VoiceEngine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Emitter;
 use tokio::sync::RwLock;
@@ -31,6 +32,9 @@ const GOOGLE_CALENDAR_CLIENT_ID_KEY: &str = "google-calendar-client-id";
 const GOOGLE_CALENDAR_OAUTH_KEY: &str = "google-calendar-oauth";
 const MODEL_PROVIDER_SETTING_KEY: &str = "model_provider";
 const MODEL_ID_SETTING_KEY: &str = "model_id";
+const PERSONA_SETTING_KEY: &str = "persona_override";
+const TALK_BACK_DEFAULT_KEY: &str = "talk_back_default";
+const NOTIFICATIONS_ENABLED_KEY: &str = "notifications_enabled";
 
 /// The parts of Otto's runtime that depend on credentials, held behind a
 /// lock so a Settings save can swap in a freshly-built one without
@@ -52,12 +56,26 @@ struct SelectedModel {
     model: String,
 }
 
+/// Otto's credentials/activity-log/persona/notifications are per profile -
+/// this is the bundle that changes as a whole on sign-in or profile switch.
+/// `runtime`/`selected` were already behind their own `RwLock`s (a Settings
+/// save rebuilds `runtime` without restarting); the rest join them here
+/// rather than living as one shared lock, so an unrelated read (e.g.
+/// `list_skills` reading `runtime`) never blocks on a profile switch still
+/// in progress or vice versa.
 struct AppState {
-    credentials: Arc<dyn CredentialStore>,
+    /// The top-level profile registry - always unscoped, has to be
+    /// readable before any profile is "entered".
+    profile_store: Arc<ProfileStore>,
+    /// The GitHub OAuth App's client id, for the Device Flow - `None` means
+    /// sign-in falls back to "paste a token" only (see `start_github_device_flow`).
+    github_client_id: Option<String>,
+    credentials: RwLock<Arc<dyn CredentialStore>>,
     runtime: RwLock<SharedRuntime>,
     selected: RwLock<SelectedModel>,
-    persona: String,
-    store: Arc<SqliteStore>,
+    persona: RwLock<String>,
+    notifications_enabled: RwLock<bool>,
+    store: RwLock<Arc<SqliteStore>>,
     voice: Option<VoiceEngine>,
 }
 
@@ -69,21 +87,105 @@ impl AppState {
     async fn agent(&self) -> AgentLoop {
         let rt = self.runtime.read().await;
         let selected = self.selected.read().await.clone();
+        let persona = self.persona.read().await.clone();
+        let store = self.store.read().await.clone();
         AgentLoop::new(
             rt.llm.clone(),
             selected.provider,
             selected.model,
-            self.persona.clone(),
+            persona,
             rt.registry.clone(),
-            self.store.clone(),
+            store,
         )
     }
 
     async fn rebuild_runtime(&self) -> anyhow::Result<()> {
-        let fresh = build_runtime(self.credentials.clone()).await?;
+        let credentials = self.credentials.read().await.clone();
+        let notifications_enabled = *self.notifications_enabled.read().await;
+        let fresh = build_runtime(credentials, notifications_enabled).await?;
         *self.runtime.write().await = fresh;
         Ok(())
     }
+
+    /// Swaps every profile-scoped piece of state to `profile_id` and makes
+    /// it current in the registry - used both when switching between
+    /// already-known profiles and right after a fresh sign-in.
+    async fn switch_to_profile(&self, profile_id: &str) -> anyhow::Result<()> {
+        let scoped = load_profile_scoped(profile_id).await?;
+        *self.credentials.write().await = scoped.credentials;
+        *self.store.write().await = scoped.store;
+        *self.selected.write().await = scoped.selected;
+        *self.persona.write().await = scoped.persona;
+        *self.notifications_enabled.write().await = scoped.notifications_enabled;
+        *self.runtime.write().await = scoped.runtime;
+        self.profile_store.set_current(profile_id)?;
+        Ok(())
+    }
+}
+
+/// Where a profile's `SqliteStore` lives - `LOCAL_PROFILE_ID` (the
+/// auto-migrated pre-profiles install) resolves to the unchanged, unscoped
+/// `default_path()` so upgrading needs no data migration; every other
+/// profile gets its own `profiles/{id}/otto.sqlite3`.
+fn store_path_for(profile_id: &str) -> otto_core::CoreResult<PathBuf> {
+    if profile_id == LOCAL_PROFILE_ID {
+        SqliteStore::default_path()
+    } else {
+        SqliteStore::path_for_profile(profile_id)
+    }
+}
+
+/// Every piece of state that's scoped to one signed-in profile, loaded
+/// together as a unit - used both to build `AppState` at startup and to
+/// swap profiles afterward (`AppState::switch_to_profile`).
+struct ProfileScoped {
+    credentials: Arc<dyn CredentialStore>,
+    store: Arc<SqliteStore>,
+    runtime: SharedRuntime,
+    selected: SelectedModel,
+    persona: String,
+    notifications_enabled: bool,
+}
+
+async fn load_profile_scoped(profile_id: &str) -> anyhow::Result<ProfileScoped> {
+    let credentials: Arc<dyn CredentialStore> = Arc::new(KeyringStore::for_profile(profile_id));
+    let store = Arc::new(SqliteStore::open(store_path_for(profile_id)?)?);
+
+    // A model/provider picked via Settings outlives the process it was
+    // picked in; OTTO_MODEL/the built-in default are only the first-run
+    // fallback (and always assumed Anthropic, for back-compat with the
+    // single-provider OTTO_MODEL env var from before multi-provider
+    // support).
+    let selected = match (
+        store.get_setting(MODEL_PROVIDER_SETTING_KEY).await?,
+        store.get_setting(MODEL_ID_SETTING_KEY).await?,
+    ) {
+        (Some(provider), Some(model)) => SelectedModel { provider, model },
+        _ => SelectedModel {
+            provider: DEFAULT_PROVIDER.to_string(),
+            model: std::env::var("OTTO_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string()),
+        },
+    };
+    let persona = match store.get_setting(PERSONA_SETTING_KEY).await? {
+        Some(persona) => persona,
+        None => std::env::var("OTTO_PERSONA").unwrap_or_else(|_| DEFAULT_PERSONA.to_string()),
+    };
+    let notifications_enabled = store
+        .get_setting(NOTIFICATIONS_ENABLED_KEY)
+        .await?
+        .map(|v| v == "true")
+        .unwrap_or(true);
+
+    let runtime = build_runtime(credentials.clone(), notifications_enabled).await?;
+
+    Ok(ProfileScoped {
+        credentials,
+        store,
+        runtime,
+        selected,
+        persona,
+        notifications_enabled,
+    })
 }
 
 #[derive(Serialize)]
@@ -99,14 +201,9 @@ async fn run_command(
     input: String,
 ) -> Result<AgentTurn, String> {
     let selected = state.selected.read().await.clone();
+    let credentials = state.credentials.read().await.clone();
     if let Some(info) = otto_core::provider_info(&selected.provider) {
-        if info.needs_api_key
-            && state
-                .credentials
-                .get(&credential_key(info.id))
-                .await
-                .is_err()
-        {
+        if info.needs_api_key && credentials.get(&credential_key(info.id)).await.is_err() {
             return Err(format!(
                 "no {} API key configured yet - open Settings and add one",
                 info.name
@@ -130,6 +227,8 @@ async fn list_activities(
 ) -> Result<Vec<ActivityEntry>, String> {
     state
         .store
+        .read()
+        .await
         .list_recent(limit.unwrap_or(100) as usize)
         .await
         .map_err(|e| e.to_string())
@@ -176,13 +275,12 @@ async fn set_selected_model(
     }
     let model = model.trim().to_string();
 
-    state
-        .store
+    let store = state.store.read().await.clone();
+    store
         .set_setting(MODEL_PROVIDER_SETTING_KEY, &provider)
         .await
         .map_err(|e| e.to_string())?;
-    state
-        .store
+    store
         .set_setting(MODEL_ID_SETTING_KEY, &model)
         .await
         .map_err(|e| e.to_string())?;
@@ -214,10 +312,11 @@ fn get_greeting_name() -> Option<String> {
 async fn get_credential_status(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<Vec<CredentialStatus>, String> {
+    let credentials = state.credentials.read().await.clone();
     let mut out = Vec::with_capacity(PROVIDER_CATALOG.len() + 1);
     for provider in PROVIDER_CATALOG.iter().filter(|p| p.needs_api_key) {
         let key = credential_key(provider.id);
-        let configured = state.credentials.get(&key).await.is_ok();
+        let configured = credentials.get(&key).await.is_ok();
         out.push(CredentialStatus {
             key,
             label: provider.name.to_string(),
@@ -227,25 +326,17 @@ async fn get_credential_status(
     out.push(CredentialStatus {
         key: GITHUB_KEY.to_string(),
         label: "GitHub".to_string(),
-        configured: state.credentials.get(GITHUB_KEY).await.is_ok(),
+        configured: credentials.get(GITHUB_KEY).await.is_ok(),
     });
     out.push(CredentialStatus {
         key: GOOGLE_CALENDAR_CLIENT_ID_KEY.to_string(),
         label: "Google Calendar Client ID".to_string(),
-        configured: state
-            .credentials
-            .get(GOOGLE_CALENDAR_CLIENT_ID_KEY)
-            .await
-            .is_ok(),
+        configured: credentials.get(GOOGLE_CALENDAR_CLIENT_ID_KEY).await.is_ok(),
     });
     out.push(CredentialStatus {
         key: GOOGLE_CALENDAR_OAUTH_KEY.to_string(),
         label: "Google Calendar".to_string(),
-        configured: state
-            .credentials
-            .get(GOOGLE_CALENDAR_OAUTH_KEY)
-            .await
-            .is_ok(),
+        configured: credentials.get(GOOGLE_CALENDAR_OAUTH_KEY).await.is_ok(),
     });
     Ok(out)
 }
@@ -273,6 +364,8 @@ async fn set_credential(
     }
     state
         .credentials
+        .read()
+        .await
         .set(&key, value.trim())
         .await
         .map_err(|e| e.to_string())?;
@@ -285,9 +378,225 @@ async fn set_credential(
 /// Requires `GOOGLE_CALENDAR_CLIENT_ID_KEY` to already be set.
 #[tauri::command]
 async fn connect_google_calendar_cmd(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
-    connect_google_calendar(&*state.credentials)
+    let credentials = state.credentials.read().await.clone();
+    connect_google_calendar(&*credentials)
         .await
         .map_err(|e| e.to_string())?;
+    state.rebuild_runtime().await.map_err(|e| e.to_string())
+}
+
+/// Every known profile (the auto-migrated `"local"` one, plus every account
+/// that's ever signed in), for the Sidebar's switch-profile menu.
+#[tauri::command]
+async fn list_profiles(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<Profile>, String> {
+    state.profile_store.list().map_err(|e| e.to_string())
+}
+
+/// The signed-in profile, or `None` before any sign-in - the frontend shows
+/// the sign-in gate exactly when this is `None`.
+#[tauri::command]
+async fn get_current_profile(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Option<Profile>, String> {
+    state.profile_store.current().map_err(|e| e.to_string())
+}
+
+/// What the `"device-code"` event carries - just enough for the frontend to
+/// show the user where to go and what to type.
+#[derive(Clone, Serialize)]
+struct DeviceCodePayload {
+    user_code: String,
+    verification_uri: String,
+}
+
+/// Runs the GitHub Device Flow end to end: requests a code, emits it to the
+/// frontend as soon as it's ready (a `"device-code"` event, same pattern as
+/// the existing `"open-settings"` menu event) so the UI can show it while
+/// this call is still blocked polling, then waits for the user to enter it
+/// at github.com/login/device, fetches their identity, and signs in.
+#[tauri::command]
+async fn start_github_device_flow(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Profile, String> {
+    let client_id = state.github_client_id.clone().ok_or(
+        "GitHub sign-in isn't configured (no OAuth client id) - see the README, or paste a token instead",
+    )?;
+
+    let session = device_flow_start(&client_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "device-code",
+        DeviceCodePayload {
+            user_code: session.user_code.clone(),
+            verification_uri: session.verification_uri.clone(),
+        },
+    );
+    // Best-effort - the frontend also shows the code/URI so the user can
+    // navigate there manually if this fails (e.g. no default browser set).
+    let _ = webbrowser::open(&session.verification_uri);
+
+    let token = device_flow_poll(&client_id, &session)
+        .await
+        .map_err(|e| e.to_string())?;
+    complete_github_sign_in(&state, &token).await
+}
+
+/// Signs in with a pasted personal access token instead of the device flow
+/// - validates it and derives the profile in the same `fetch_identity` call.
+#[tauri::command]
+async fn sign_in_with_pat(
+    state: tauri::State<'_, Arc<AppState>>,
+    token: String,
+) -> Result<Profile, String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err("token can't be empty".to_string());
+    }
+    complete_github_sign_in(&state, token).await
+}
+
+/// Shared tail of both sign-in paths: fetch identity, upsert the profile,
+/// switch to it, then store the token under *that* profile's now-active
+/// keychain namespace and rebuild the runtime so `GithubSkill`/`DeploySkill`
+/// pick it up immediately.
+async fn complete_github_sign_in(state: &Arc<AppState>, token: &str) -> Result<Profile, String> {
+    let identity = fetch_identity(token).await.map_err(|e| e.to_string())?;
+    let profile = Profile {
+        id: identity.login.clone(),
+        display_name: identity
+            .name
+            .clone()
+            .unwrap_or_else(|| identity.login.clone()),
+        avatar_url: identity.avatar_url.clone(),
+        github_login: Some(identity.login.clone()),
+        created_at: chrono::Utc::now(),
+    };
+    state
+        .profile_store
+        .upsert(&profile)
+        .map_err(|e| e.to_string())?;
+    state
+        .switch_to_profile(&profile.id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    state
+        .credentials
+        .read()
+        .await
+        .set(GITHUB_KEY, token)
+        .await
+        .map_err(|e| e.to_string())?;
+    state.rebuild_runtime().await.map_err(|e| e.to_string())?;
+
+    Ok(profile)
+}
+
+/// Switches to an already-known profile (picked from the Sidebar menu).
+#[tauri::command]
+async fn switch_profile(
+    state: tauri::State<'_, Arc<AppState>>,
+    profile_id: String,
+) -> Result<(), String> {
+    if state
+        .profile_store
+        .get(&profile_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Err(format!("unknown profile '{profile_id}'"));
+    }
+    state
+        .switch_to_profile(&profile_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Signs out back to the sign-in gate/picker - the profile and its data
+/// stay exactly as they are for the next sign-in, nothing is deleted.
+#[tauri::command]
+async fn sign_out(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+    state
+        .profile_store
+        .clear_current()
+        .map_err(|e| e.to_string())
+}
+
+/// The current profile's editable preferences - persona override,
+/// talk-back-by-default, and whether `notify_desktop` actually shows
+/// anything.
+#[derive(Serialize, Deserialize)]
+struct Preferences {
+    persona: String,
+    talk_back_default: bool,
+    notifications_enabled: bool,
+}
+
+#[tauri::command]
+async fn get_preferences(state: tauri::State<'_, Arc<AppState>>) -> Result<Preferences, String> {
+    let store = state.store.read().await.clone();
+    let persona = state.persona.read().await.clone();
+    let talk_back_default = store
+        .get_setting(TALK_BACK_DEFAULT_KEY)
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let notifications_enabled = *state.notifications_enabled.read().await;
+    Ok(Preferences {
+        persona,
+        talk_back_default,
+        notifications_enabled,
+    })
+}
+
+/// Saves the current profile's preferences and rebuilds the runtime so a
+/// changed notifications toggle takes effect immediately (persona and
+/// talk-back are read fresh per use already, so they don't strictly need
+/// the rebuild - but one rebuild for the whole save keeps this simple).
+#[tauri::command]
+async fn set_preferences(
+    state: tauri::State<'_, Arc<AppState>>,
+    preferences: Preferences,
+) -> Result<(), String> {
+    let persona = if preferences.persona.trim().is_empty() {
+        DEFAULT_PERSONA.to_string()
+    } else {
+        preferences.persona.trim().to_string()
+    };
+
+    let store = state.store.read().await.clone();
+    store
+        .set_setting(PERSONA_SETTING_KEY, &persona)
+        .await
+        .map_err(|e| e.to_string())?;
+    store
+        .set_setting(
+            TALK_BACK_DEFAULT_KEY,
+            if preferences.talk_back_default {
+                "true"
+            } else {
+                "false"
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    store
+        .set_setting(
+            NOTIFICATIONS_ENABLED_KEY,
+            if preferences.notifications_enabled {
+                "true"
+            } else {
+                "false"
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    *state.persona.write().await = persona;
+    *state.notifications_enabled.write().await = preferences.notifications_enabled;
     state.rebuild_runtime().await.map_err(|e| e.to_string())
 }
 
@@ -345,7 +654,10 @@ fn register_provider(llm: &mut LlmRegistry, id: &str, api_key: String) {
     }
 }
 
-async fn build_runtime(credentials: Arc<dyn CredentialStore>) -> anyhow::Result<SharedRuntime> {
+async fn build_runtime(
+    credentials: Arc<dyn CredentialStore>,
+    notifications_enabled: bool,
+) -> anyhow::Result<SharedRuntime> {
     let mut llm = LlmRegistry::new();
     for provider in PROVIDER_CATALOG {
         if provider.needs_api_key {
@@ -377,7 +689,7 @@ async fn build_runtime(credentials: Arc<dyn CredentialStore>) -> anyhow::Result<
         default_repo,
     )));
     registry.register(Arc::new(CalendarSkill::new(credentials.clone())));
-    registry.register(Arc::new(NotifySkill::new()));
+    registry.register(Arc::new(NotifySkill::new(notifications_enabled)));
 
     Ok(SharedRuntime {
         registry: Arc::new(registry),
@@ -386,27 +698,24 @@ async fn build_runtime(credentials: Arc<dyn CredentialStore>) -> anyhow::Result<
 }
 
 async fn build_state() -> anyhow::Result<AppState> {
-    let credentials: Arc<dyn CredentialStore> = Arc::new(KeyringStore::new());
-    let runtime = build_runtime(credentials.clone()).await?;
+    let profile_store = Arc::new(ProfileStore::open()?);
+    // Registered by the user against a GitHub OAuth App with Device Flow
+    // enabled - see the README. `None` just means "Sign in with GitHub"
+    // isn't offered; pasting a token still works either way.
+    let github_client_id = std::env::var("OTTO_GITHUB_CLIENT_ID").ok();
 
-    let store = Arc::new(SqliteStore::open(SqliteStore::default_path()?)?);
-
-    // A model/provider picked via Settings outlives the process it was
-    // picked in; OTTO_MODEL/the built-in default are only the first-run
-    // fallback (and always assumed Anthropic, for back-compat with the
-    // single-provider OTTO_MODEL env var from before multi-provider
-    // support).
-    let selected = match (
-        store.get_setting(MODEL_PROVIDER_SETTING_KEY).await?,
-        store.get_setting(MODEL_ID_SETTING_KEY).await?,
-    ) {
-        (Some(provider), Some(model)) => SelectedModel { provider, model },
-        _ => SelectedModel {
-            provider: DEFAULT_PROVIDER.to_string(),
-            model: std::env::var("OTTO_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string()),
-        },
-    };
-    let persona = std::env::var("OTTO_PERSONA").unwrap_or_else(|_| DEFAULT_PERSONA.to_string());
+    // Nothing to load yet on a genuine fresh install (no profile has ever
+    // been current) - `LOCAL_PROFILE_ID` is a safe placeholder to build
+    // *some* scoped state against so every Tauri command has a `store`/
+    // `credentials` to read, without implying anyone is signed in:
+    // `get_current_profile` reads `profile_store.current()` directly, not
+    // this state, so the frontend still shows the sign-in gate until a real
+    // sign-in calls `switch_to_profile`.
+    let current_profile_id = profile_store
+        .current()?
+        .map(|p| p.id)
+        .unwrap_or_else(|| LOCAL_PROFILE_ID.to_string());
+    let scoped = load_profile_scoped(&current_profile_id).await?;
 
     let voice = match otto_voice::default_model_path() {
         Ok(model_path) => match VoiceEngine::spawn(model_path) {
@@ -423,11 +732,14 @@ async fn build_state() -> anyhow::Result<AppState> {
     };
 
     Ok(AppState {
-        credentials,
-        runtime: RwLock::new(runtime),
-        selected: RwLock::new(selected),
-        persona,
-        store,
+        profile_store,
+        github_client_id,
+        credentials: RwLock::new(scoped.credentials),
+        runtime: RwLock::new(scoped.runtime),
+        selected: RwLock::new(scoped.selected),
+        persona: RwLock::new(scoped.persona),
+        notifications_enabled: RwLock::new(scoped.notifications_enabled),
+        store: RwLock::new(scoped.store),
         voice,
     })
 }
@@ -437,51 +749,28 @@ async fn build_state() -> anyhow::Result<AppState> {
 /// else empty (meaning "whatever `GithubSkill`'s own default resolves to" -
 /// unchanged single-repo behavior for anyone not opting into the new var).
 fn growth_repos() -> Vec<String> {
-    parse_growth_repos(std::env::var("OTTO_GROWTH_REPOS").ok(), std::env::var("OTTO_DEFAULT_REPO").ok())
+    parse_growth_repos(
+        std::env::var("OTTO_GROWTH_REPOS").ok(),
+        std::env::var("OTTO_DEFAULT_REPO").ok(),
+    )
 }
 
 /// The parsing logic behind [`growth_repos`], pulled out so it's testable
 /// without mutating process-global env state (`std::env::set_var` in a
 /// `#[test]` races every other test running in parallel).
-fn parse_growth_repos(growth_repos_env: Option<String>, default_repo_env: Option<String>) -> Vec<String> {
+fn parse_growth_repos(
+    growth_repos_env: Option<String>,
+    default_repo_env: Option<String>,
+) -> Vec<String> {
     if let Some(repos) = growth_repos_env {
-        return repos.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect();
+        return repos
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
     }
     default_repo_env.into_iter().collect()
-}
-
-#[cfg(test)]
-mod growth_repos_tests {
-    use super::parse_growth_repos;
-
-    #[test]
-    fn splits_and_trims_comma_separated_repos() {
-        let repos = parse_growth_repos(Some(" acme/widgets, acme/gadgets ,acme/thing".to_string()), None);
-        assert_eq!(repos, vec!["acme/widgets", "acme/gadgets", "acme/thing"]);
-    }
-
-    #[test]
-    fn falls_back_to_default_repo_when_unset() {
-        let repos = parse_growth_repos(None, Some("acme/widgets".to_string()));
-        assert_eq!(repos, vec!["acme/widgets"]);
-    }
-
-    #[test]
-    fn empty_when_neither_is_set() {
-        assert!(parse_growth_repos(None, None).is_empty());
-    }
-
-    #[test]
-    fn growth_repos_takes_precedence_over_default_repo() {
-        let repos = parse_growth_repos(Some("acme/widgets".to_string()), Some("other/repo".to_string()));
-        assert_eq!(repos, vec!["acme/widgets"]);
-    }
-
-    #[test]
-    fn ignores_blank_entries() {
-        let repos = parse_growth_repos(Some("acme/widgets,,  ,acme/gadgets".to_string()), None);
-        assert_eq!(repos, vec!["acme/widgets", "acme/gadgets"]);
-    }
 }
 
 /// Spawns the background task that runs `run_growth_digest` on a repeating
@@ -503,12 +792,13 @@ fn spawn_growth_digest(state: Arc<AppState>) {
             ticker.tick().await;
             let rt = state.runtime.read().await;
             let selected = state.selected.read().await.clone();
+            let store = state.store.read().await.clone();
             if let Err(e) = otto_core::run_growth_digest(
                 &rt.registry,
                 &rt.llm,
                 &selected.provider,
                 &selected.model,
-                &*state.store,
+                &*store,
                 &repos,
             )
             .await
@@ -569,6 +859,8 @@ pub fn run() {
                     tracing::info!("Otto's scheduled active window has ended; exiting");
                     let _ = state_for_schedule
                         .store
+                        .read()
+                        .await
                         .record_event(
                             ActivityKind::Schedule,
                             "Scheduled shutdown",
@@ -668,8 +960,56 @@ pub fn run() {
             get_greeting_name,
             get_credential_status,
             set_credential,
-            connect_google_calendar_cmd
+            connect_google_calendar_cmd,
+            list_profiles,
+            get_current_profile,
+            start_github_device_flow,
+            sign_in_with_pat,
+            switch_profile,
+            sign_out,
+            get_preferences,
+            set_preferences
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Otto desktop app");
+}
+
+#[cfg(test)]
+mod growth_repos_tests {
+    use super::parse_growth_repos;
+
+    #[test]
+    fn splits_and_trims_comma_separated_repos() {
+        let repos = parse_growth_repos(
+            Some(" acme/widgets, acme/gadgets ,acme/thing".to_string()),
+            None,
+        );
+        assert_eq!(repos, vec!["acme/widgets", "acme/gadgets", "acme/thing"]);
+    }
+
+    #[test]
+    fn falls_back_to_default_repo_when_unset() {
+        let repos = parse_growth_repos(None, Some("acme/widgets".to_string()));
+        assert_eq!(repos, vec!["acme/widgets"]);
+    }
+
+    #[test]
+    fn empty_when_neither_is_set() {
+        assert!(parse_growth_repos(None, None).is_empty());
+    }
+
+    #[test]
+    fn growth_repos_takes_precedence_over_default_repo() {
+        let repos = parse_growth_repos(
+            Some("acme/widgets".to_string()),
+            Some("other/repo".to_string()),
+        );
+        assert_eq!(repos, vec!["acme/widgets"]);
+    }
+
+    #[test]
+    fn ignores_blank_entries() {
+        let repos = parse_growth_repos(Some("acme/widgets,,  ,acme/gadgets".to_string()), None);
+        assert_eq!(repos, vec!["acme/widgets", "acme/gadgets"]);
+    }
 }

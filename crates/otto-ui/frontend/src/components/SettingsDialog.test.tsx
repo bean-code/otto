@@ -3,12 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsDialog } from "@/components/SettingsDialog";
-import { connectGoogleCalendar, setCredential } from "@/lib/tauri";
-import type { CredentialStatus } from "@/lib/types";
+import { connectGoogleCalendar, getPreferences, setCredential, setPreferences } from "@/lib/tauri";
+import type { CredentialStatus, Preferences } from "@/lib/types";
 
 vi.mock("@/lib/tauri", () => ({
   connectGoogleCalendar: vi.fn(),
   setCredential: vi.fn(),
+  getPreferences: vi.fn(),
+  setPreferences: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -21,6 +23,12 @@ const credentialStatus: CredentialStatus[] = [
   { key: "google-calendar-oauth", label: "Google Calendar", configured: false },
 ];
 
+const defaultPreferences: Preferences = {
+  persona: "",
+  talk_back_default: false,
+  notifications_enabled: true,
+};
+
 function setup(overrides: Partial<CredentialStatus[]> = credentialStatus) {
   const onOpenChange = vi.fn();
   const onSaved = vi.fn().mockResolvedValue(undefined);
@@ -32,14 +40,19 @@ function setup(overrides: Partial<CredentialStatus[]> = credentialStatus) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(getPreferences).mockResolvedValue(defaultPreferences);
 });
 
 describe("SettingsDialog - rendering", () => {
   it("renders a paste field for normal credentials and a Connect button for the calendar OAuth row", () => {
     setup();
     expect(screen.getByLabelText("Anthropic")).toBeInTheDocument();
-    expect(screen.getByLabelText("GitHub")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
+  });
+
+  it("excludes the GitHub row - that's signed in from the Sidebar's profile menu now", () => {
+    setup();
+    expect(screen.queryByLabelText("GitHub")).not.toBeInTheDocument();
   });
 
   it("shows 'Reconnect' instead of 'Connect' once already configured", () => {
@@ -50,7 +63,44 @@ describe("SettingsDialog - rendering", () => {
   it("shows configured/not set status next to each credential", () => {
     setup();
     expect(screen.getByText("configured")).toBeInTheDocument();
-    expect(screen.getAllByText("not set")).toHaveLength(2);
+    expect(screen.getAllByText("not set")).toHaveLength(1);
+  });
+});
+
+describe("SettingsDialog - preferences", () => {
+  it("loads and shows the current preferences when the Preferences tab is opened", async () => {
+    vi.mocked(getPreferences).mockResolvedValue({
+      persona: "Be terse.",
+      talk_back_default: true,
+      notifications_enabled: false,
+    });
+    setup();
+
+    await userEvent.click(screen.getByRole("button", { name: "preferences" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Persona")).toHaveValue("Be terse."));
+    expect(screen.getByLabelText("Talk back by default")).toBeChecked();
+    expect(screen.getByLabelText("Desktop notifications")).not.toBeChecked();
+  });
+
+  it("saves preferences and closes", async () => {
+    vi.mocked(setPreferences).mockResolvedValue(undefined);
+    const { onOpenChange } = setup();
+
+    await userEvent.click(screen.getByRole("button", { name: "preferences" }));
+    await waitFor(() => expect(getPreferences).toHaveBeenCalledOnce());
+    await userEvent.type(screen.getByLabelText("Persona"), "Be terse.");
+    await userEvent.click(screen.getByLabelText("Talk back by default"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(setPreferences).toHaveBeenCalledWith({
+        persona: "Be terse.",
+        talk_back_default: true,
+        notifications_enabled: true,
+      }),
+    );
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 });
 
@@ -59,10 +109,10 @@ describe("SettingsDialog - saving credentials", () => {
     vi.mocked(setCredential).mockResolvedValue(undefined);
     const { onOpenChange, onSaved } = setup();
 
-    await userEvent.type(screen.getByLabelText("GitHub"), "  ghp_abc123  ");
+    await userEvent.type(screen.getByLabelText("Anthropic"), "  sk-ant-abc123  ");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(setCredential).toHaveBeenCalledWith("github-token", "ghp_abc123"));
+    await waitFor(() => expect(setCredential).toHaveBeenCalledWith("anthropic-api-key", "sk-ant-abc123"));
     expect(setCredential).toHaveBeenCalledOnce();
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(onSaved).toHaveBeenCalledOnce();
@@ -80,7 +130,7 @@ describe("SettingsDialog - saving credentials", () => {
     vi.mocked(setCredential).mockRejectedValue("keychain unavailable");
     const { onOpenChange } = setup();
 
-    await userEvent.type(screen.getByLabelText("GitHub"), "ghp_abc123");
+    await userEvent.type(screen.getByLabelText("Anthropic"), "sk-ant-abc123");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(setCredential).toHaveBeenCalled());

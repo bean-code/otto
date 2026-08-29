@@ -85,3 +85,25 @@ export interface GithubPrStepData {
   pull_requests?: PullRequest[];
   repo?: string;
 }
+
+// Mirrors `otto_core::profiles::Profile` and `otto-ui/src/lib.rs`'s
+// `Preferences`/`DeviceCodePayload`.
+
+export interface Profile {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  github_login: string | null;
+  created_at: string;
+}
+
+export interface Preferences {
+  persona: string;
+  talk_back_default: boolean;
+  notifications_enabled: boolean;
+}
+
+export interface DeviceCodePayload {
+  user_code: string;
+  verification_uri: string;
+}

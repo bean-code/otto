@@ -1,6 +1,15 @@
 import ottoMark from "@/assets/otto-mark.png";
 import { Icon } from "@/components/icons";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { TABS, type Tab } from "@/lib/tabs";
+import type { Profile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function NavItem({
@@ -34,21 +43,59 @@ export function Sidebar({
   onTabChange,
   onSettingsClick,
   modelLabel,
+  currentProfile = null,
+  profiles = [],
+  onSwitchProfile,
+  onSignInAnother,
+  onSignOut,
 }: {
   activeTab: Tab;
   onTabChange: (tab: Tab) => void;
   onSettingsClick: () => void;
   modelLabel: string;
+  currentProfile?: Profile | null;
+  profiles?: Profile[];
+  onSwitchProfile?: (profileId: string) => void;
+  onSignInAnother?: () => void;
+  onSignOut?: () => void;
 }) {
   const dashboardTab = TABS[0];
   const workspaceTabs = TABS.slice(1);
 
   return (
     <aside className="drag-region flex w-60 flex-shrink-0 select-none flex-col border-r border-border bg-surface">
-      <div className="flex items-center gap-2 px-4 py-4 text-[15px] font-bold">
-        <img src={ottoMark} alt="" className="h-6 w-6 rounded-[7px]" />
-        <span>Otto</span>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="no-drag flex w-full cursor-pointer items-center gap-2 px-4 py-4 text-left text-[15px] font-bold hover:bg-surface-sunken"
+          >
+            {currentProfile?.avatar_url ? (
+              <img src={currentProfile.avatar_url} alt="" className="h-6 w-6 flex-shrink-0 rounded-full" />
+            ) : (
+              <img src={ottoMark} alt="" className="h-6 w-6 flex-shrink-0 rounded-[7px]" />
+            )}
+            <span className="flex-1 truncate">{currentProfile?.display_name ?? "Otto"}</span>
+            <Icon name="chevronDown" className="h-3.5 w-3.5 flex-shrink-0 text-muted" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {profiles.length > 0 && (
+            <>
+              <DropdownMenuLabel>Profiles</DropdownMenuLabel>
+              {profiles.map((profile) => (
+                <DropdownMenuItem key={profile.id} onSelect={() => onSwitchProfile?.(profile.id)}>
+                  <span className="flex-1 truncate">{profile.display_name}</span>
+                  {currentProfile?.id === profile.id && <span className="text-xs text-muted">Active</span>}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+            </>
+          )}
+          <DropdownMenuItem onSelect={() => onSignInAnother?.()}>Sign in another account</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onSignOut?.()}>Sign out</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <nav className="no-drag flex flex-col gap-1 px-3">
         <NavItem
