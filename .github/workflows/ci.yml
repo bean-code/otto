@@ -49,6 +49,25 @@ jobs:
         with:
           shared-key: ${{ matrix.os }}
 
+      # otto-ui's `generate_context!()` embeds `frontend/dist` at compile
+      # time, so it has to exist (built from the real Vite/React source)
+      # before `cargo build` ever touches the otto-ui crate.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: crates/otto-ui/frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm --dir crates/otto-ui/frontend install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --dir crates/otto-ui/frontend build
+
       - name: Build workspace
         run: cargo build --workspace --locked --verbose
 

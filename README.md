@@ -205,21 +205,27 @@ sudo apt-get install -y \
 (The last line is for `otto-voice`: `libasound2-dev` for mic capture via `cpal`/ALSA, `speech-dispatcher` +
 `libspeechd-dev` for talk-back via the `tts` crate, `cmake` to build `whisper.cpp` via `whisper-rs`.)
 
-Then:
+Then, install the frontend's dependencies once and run the app through Tauri's own CLI (via
+`@tauri-apps/cli`, a frontend devDependency - no global `cargo install tauri-cli` needed):
 
 ```sh
-cargo run -p otto-ui
+pnpm --dir crates/otto-ui/frontend install
+pnpm --dir crates/otto-ui/frontend tauri dev
 ```
 
-The dashboard's frontend (`crates/otto-ui/frontend/dist/index.html`) is hand-written HTML/CSS/JS - it calls the
-Rust backend through `window.__TAURI__.core.invoke("run_command", { input })` (`app.withGlobalTauri` is on in
-`tauri.conf.json`, so no JS bundler or npm package is needed). This is a deliberate simplification, not the final
-shape: the original brief asked for a Rust-first frontend (Dioxus/Leptos) compiled through `trunk`, but `trunk`
-failed to build from source in this environment (a `lightningcss` compile error unrelated to this project) and
-neither `trunk` nor the `wasm32-unknown-unknown` target/`dioxus-cli` were preinstalled. Swapping in a real Dioxus
-frontend is a matter of adding a crate under `crates/otto-ui/frontend/`, pointing `tauri.conf.json`'s
-`build.frontendDist` at its `trunk build` output, and wiring `beforeDevCommand`/`beforeBuildCommand` to
-`trunk serve`/`trunk build` - the Rust backend (commands, state, ACL) doesn't need to change.
+This runs the Vite dev server (full HMR) and the Tauri window together - the primary dev workflow.
+`cargo run -p otto-ui` also still works, but only against a previously-built `frontend/dist/` (no
+HMR); run `pnpm --dir crates/otto-ui/frontend build` first if you use it. For a release build,
+`pnpm --dir crates/otto-ui/frontend tauri build` builds the frontend and the platform installer
+together.
+
+The dashboard's frontend (`crates/otto-ui/frontend/`) is Vite + React + TypeScript, styled with
+[Tailwind CSS](https://tailwindcss.com) v4 and [shadcn/ui](https://ui.shadcn.com) (Radix
+primitives) - it calls the Rust backend through typed wrappers in `src/lib/tauri.ts` (the only
+file that touches the raw `@tauri-apps/api` `invoke`), with `src/lib/types.ts` mirroring the Rust
+`Serialize` struct shapes. Node is a required build-time dependency now - see
+`crates/otto-ui/frontend/README.md` for the full dev workflow, design-token, and icon-system
+notes.
 
 **What's actually in the window:**
 
@@ -243,11 +249,12 @@ frontend is a matter of adding a crate under `crates/otto-ui/frontend/`, pointin
   want to add one).
 - **A light, card-based visual language** modeled on a Google Material-style dashboard mockup in `docs/ux.webp` -
   white surfaces, soft shadows, a card grid for anything selectable (models, skills, the dashboard panels), and a
-  greeting header with a brand-colored accent flourish. Built with [Tailwind CSS](https://tailwindcss.com) v4,
-  compiled ahead of time into a checked-in static asset rather than loaded from a CDN or rebuilt on every
-  `cargo build` - see `crates/otto-ui/frontend/README.md` for how to regenerate it after a markup/theme change.
-- **Hand-authored icons, not emoji** - a small set of inline SVGs (outline style, `currentColor` stroke, no icon
-  font or external package) defined in `index.html`'s script and rendered via a local `iconSvg()` helper.
+  greeting header with a brand-colored accent flourish. Built with Tailwind CSS v4 and shadcn/ui components, with
+  Otto's brand tokens (`src/index.css`) mapped onto shadcn's own theme slots so generated primitives (dialogs,
+  buttons, inputs) stay visually consistent with the rest of the app.
+- **Hand-authored icons, not emoji** - a small set of inline SVGs (outline style, `currentColor` stroke) for
+  Otto's own UI, in `src/components/icons.tsx`; `lucide-react` is used only internally by shadcn's generated
+  primitives, not by Otto's own components.
 - **Toolbar status pills** for the currently selected model's provider and for GitHub, flipping from amber
   "not set" to green "configured" the moment Settings saves - `get_credential_status` never returns the values
   themselves, only whether each is set.

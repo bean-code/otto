@@ -1,0 +1,162 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Otto's brand tokens (from the original hand-authored input.css) mapped
+   onto shadcn's theme slots, plus kept under their own names since ported
+   components reference classes like `bg-surface-sunken`/`text-accent-2`
+   directly, not just the shadcn primitive slots. */
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: -apple-system, "Segoe UI", "Space Grotesk", Inter, system-ui, sans-serif;
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Otto-specific tokens, unchanged from the original design. */
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f1f3f6;
+  --color-border-strong: #d7dbe3;
+  --color-ink: #1b1f27;
+  --color-muted-2: #9aa1ac;
+
+  --color-accent-soft: #fdf2e2;
+  --color-accent-2: #2f6fed;
+  --color-accent-2-soft: #eaf1ff;
+  --color-navy: #212840;
+  --color-navy-soft: #eaecf3;
+  --color-danger-soft: #fdecef;
+  --color-success: #1f9d63;
+  --color-success-soft: #e8f8f0;
+
+  --shadow-card: 0 1px 2px rgba(20, 24, 33, 0.05), 0 1px 1px rgba(20, 24, 33, 0.03);
+  --shadow-elevated: 0 8px 24px rgba(20, 24, 33, 0.08), 0 2px 6px rgba(20, 24, 33, 0.04);
+  --shadow-modal: 0 20px 48px rgba(20, 24, 33, 0.14);
+}
+
+:root {
+  --background: #f6f7f9;
+  --foreground: #1b1f27;
+  --card: #ffffff;
+  --card-foreground: #1b1f27;
+  --popover: #ffffff;
+  --popover-foreground: #1b1f27;
+  --primary: #c9821f;
+  --primary-foreground: #fdf2e2;
+  --secondary: #f1f3f6;
+  --secondary-foreground: #1b1f27;
+  --muted: #f1f3f6;
+  --muted-foreground: #6b7280;
+  --accent: #fdf2e2;
+  --accent-foreground: #c9821f;
+  --destructive: #d9455f;
+  --border: #e5e8ee;
+  --input: #e5e8ee;
+  --ring: #2f6fed;
+  --radius: 0.625rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1b1f27;
+  --sidebar-primary: #c9821f;
+  --sidebar-primary-foreground: #fdf2e2;
+  --sidebar-accent: #f1f3f6;
+  --sidebar-accent-foreground: #1b1f27;
+  --sidebar-border: #e5e8ee;
+  --sidebar-ring: #2f6fed;
+}
+
+@utility drag-region {
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  -webkit-app-region: no-drag;
+}
+
+@utility animate-pulse-ring {
+  animation: pulse-ring 1.2s ease-out infinite;
+}
+@utility animate-spin-orb {
+  animation: spin-orb 1s linear infinite;
+}
+@utility animate-slide-in {
+  animation: slide-in 0.2s ease;
+}
+@utility animate-toast-in {
+  animation: toast-in 0.2s ease;
+}
+@utility animate-toast-out {
+  animation: toast-out 0.2s ease forwards;
+}
+@utility animate-fade-in {
+  animation: fade-in 0.15s ease;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(217, 69, 95, 0.35); }
+  70% { box-shadow: 0 0 0 10px rgba(217, 69, 95, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(217, 69, 95, 0); }
+}
+@keyframes spin-orb {
+  to { transform: rotate(360deg); }
+}
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-out {
+  to { opacity: 0; transform: translateX(20px); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+  html {
+    @apply font-sans;
+  }
+}

@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "identifier": "dev.ayimdomnic.otto",
   "build": {
-    "frontendDist": "frontend/dist"
+    "frontendDist": "frontend/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm --dir frontend dev",
+    "beforeBuildCommand": "pnpm --dir frontend build"
   },
   "app": {
     "withGlobalTauri": true,

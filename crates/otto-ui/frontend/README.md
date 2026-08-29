@@ -1,28 +1,63 @@
 # otto-ui frontend
 
-Plain HTML/JS (see the root README for why), styled with [Tailwind CSS](https://tailwindcss.com) v4 - but
-**compiled once, ahead of time**, not loaded from a CDN or built on every `cargo build`. `dist/assets/tailwind.css`
-is a checked-in, static asset; the app never needs Node/npm to run, only to *edit the styling*.
+Vite + React + TypeScript, styled with [Tailwind CSS v4](https://tailwindcss.com) and
+[shadcn/ui](https://ui.shadcn.com) (Radix primitives). Unlike the very first version of this
+frontend, Node is now a **required build-time dependency** - the source is real `.tsx`/`.ts`, so
+`frontend/dist/` can no longer be hand-maintained or committed; it's generated build output.
 
-## Rebuilding the CSS
-
-Only needed if you change `src/input.css` (the `@theme` tokens, custom `@utility`/`@keyframes`) or add Tailwind
-classes to `dist/index.html` that aren't in the current build:
+## Setup
 
 ```sh
-cd crates/otto-ui/frontend/src
-npm install --no-save tailwindcss @tailwindcss/cli
-./node_modules/.bin/tailwindcss -i input.css -o ../dist/assets/tailwind.css --minify
-rm -rf node_modules   # optional - it's gitignored either way
+pnpm install
 ```
 
-`input.css`'s `@source "../dist/index.html"` tells Tailwind where to scan for class names; it picks up classes
-even inside JS template literals (plain substring matching), so dynamically-built class strings in `index.html`'s
-`<script>` still compile correctly as long as each individual class name appears somewhere in the file as a plain
-string.
+## Developing
+
+```sh
+pnpm tauri dev
+```
+
+Runs the Vite dev server (with HMR) and the Tauri window together - this is the primary dev
+workflow. `cargo run -p otto-ui` also still works, but only against a previously-built `dist/`
+(no HMR); run `pnpm build` first if you use it.
+
+## Building
+
+```sh
+pnpm tauri build
+```
+
+Builds the frontend and the platform installer together. `pnpm build` alone just produces
+`dist/` (type-checks with `tsc -b`, then bundles with Vite) without invoking Tauri's bundler.
+
+## Adding shadcn components
+
+```sh
+pnpm dlx shadcn@latest add <component>
+```
+
+Writes into `src/components/ui/`. The project's shadcn config (`components.json`) already points
+at the `@/*` path alias and `src/index.css`.
+
+## Design tokens
+
+`src/index.css` holds Otto's brand tokens (Tailwind v4's CSS-first `@theme` block - colors,
+shadows, custom animation utilities) alongside shadcn's own theme slots (`--primary`,
+`--background`, etc.), which are mapped onto the same brand colors so shadcn's generated
+primitives stay visually consistent with the rest of the app.
 
 ## Icons
 
-No emoji, no icon font, no external icon package - a small hand-authored set of inline SVGs (outline style, 24x24
-viewBox, `currentColor` stroke) defined as raw path data in the `ICONS` map at the top of `index.html`'s script,
-rendered via the local `iconSvg(name, classes)` helper. Add a new one by adding an entry to that map.
+Two icon sets, deliberately kept separate:
+
+- `src/components/icons.tsx` - Otto's own hand-authored outline SVGs (24x24, `currentColor`
+  stroke), used for the app's own branding/UI (toolbar, cards, tabs).
+- `lucide-react` - pulled in by shadcn's generated primitives for their own internals (dialog
+  close button, etc.) - not used directly by Otto's own components.
+
+## Talking to the Rust backend
+
+`src/lib/tauri.ts` is the **only** file that calls the raw Tauri `invoke()` - every
+`#[tauri::command]` in `crates/otto-ui/src/lib.rs` has a typed wrapper there. `src/lib/types.ts`
+mirrors the Rust `Serialize` struct shapes. If you add or change a Tauri command, update both
+files to match - nothing else in the frontend should call `invoke` directly.
