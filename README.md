@@ -52,6 +52,9 @@ versus staged.
 - **Extensible on purpose.** A skill is a small Rust crate implementing one trait - no plugin runtime to trust,
   no manifest to write. [`docs/SKILLS.md`](docs/SKILLS.md) walks through building one end to end, and every
   registered skill shows up in the app's Skills tab automatically.
+- **Ships like real software.** A proper `LICENSE`, and installer metadata (copyright, publisher, license,
+  category, description) that shows up both in the platform installer `cargo tauri build` produces and in a
+  native About dialog - not placeholders.
 
 ## How it's put together
 
@@ -182,15 +185,17 @@ frontend is a matter of adding a crate under `crates/otto-ui/frontend/`, pointin
 
 **What's actually in the window:**
 
-- **A native OS menu bar** (`tauri::menu`, wired in `otto-ui`'s `.setup()`) - an "Otto" menu with Settings and
-  Quit, and a standard Edit menu so cut/copy/paste and their OS keyboard shortcuts work in text fields. This is
-  genuinely native chrome (`AppKit`/`GTK`/`Win32` menus, not anything drawn in the webview) - Settings there and
-  the in-window gear button both open the same panel, just via different triggers (the menu item emits a
-  `open-settings` event the frontend listens for). The window itself keeps its normal OS title bar and
-  decorations - "native" means real OS menu/window chrome, not a custom-drawn titlebar replacing it.
+- **A native OS menu bar** (`tauri::menu`, wired in `otto-ui`'s `.setup()`) - an "Otto" menu with **About**
+  (name/version/authors/copyright/license/website, sourced from `tauri.conf.json`'s `bundle` config and
+  `Cargo.toml` via `package_info()` - not duplicated into Rust source, see Installer & About below), Settings,
+  and Quit, plus a standard Edit menu so cut/copy/paste and their OS keyboard shortcuts work in text fields. This
+  is genuinely native chrome (`AppKit`/`GTK`/`Win32` menus and dialogs, not anything drawn in the webview) -
+  Settings there and the in-window gear button both open the same panel, just via different triggers (the menu
+  item emits an `open-settings` event the frontend listens for). The window itself keeps its normal OS title bar
+  and decorations - "native" means real OS menu/window/dialog chrome, not anything custom-drawn replacing it.
 - **Four tabs**: **Dashboard** (the PR/deployment/meeting cards, command bar, voice, and a time-of-day greeting -
   "Good morning/afternoon/evening" plus your OS account name, read via `get_greeting_name`), **Activities** (a
-  single feed - commands, growth-digest notes, schedule events - via `list_activities`, see History &
+  single feed - commands, growth-digest notes, schedule events - via `list_activities`, see Activities &
   persistence above), **Models** (a card picker over `otto-core::MODEL_CATALOG`, not a dropdown - each model's a
   card with a tier badge and a one-line tradeoff; clicking one calls `set_model`, which persists the choice via
   `SqliteStore`'s settings table and takes effect on the next command, no restart), and **Skills** (every
@@ -198,13 +203,34 @@ frontend is a matter of adding a crate under `crates/otto-ui/frontend/`, pointin
   want to add one).
 - **A light, card-based visual language** modeled on a Google Material-style dashboard mockup in `docs/ux.webp` -
   white surfaces, soft shadows, a card grid for anything selectable (models, skills, the dashboard panels), and a
-  greeting header with a brand-colored accent flourish, in place of the earlier dark theme.
+  greeting header with a brand-colored accent flourish. Built with [Tailwind CSS](https://tailwindcss.com) v4,
+  compiled ahead of time into a checked-in static asset rather than loaded from a CDN or rebuilt on every
+  `cargo build` - see `crates/otto-ui/frontend/README.md` for how to regenerate it after a markup/theme change.
+- **Hand-authored icons, not emoji** - a small set of inline SVGs (outline style, `currentColor` stroke, no icon
+  font or external package) defined in `index.html`'s script and rendered via a local `iconSvg()` helper.
 - **Toolbar status pills** for each credential (Claude/GitHub) that flip from amber "not set" to green
   "configured" the moment Settings saves - `get_credential_status` never returns the values themselves, only
   whether each is set.
 - **Toast notifications** for every command's outcome (success, failure, and the "finish setting up" nudge on
   first launch if a credential is missing) - in addition to, not instead of, the OS-level desktop notifications
   `notify_desktop` can send.
+
+### Installer & About
+
+`crates/otto-ui/tauri.conf.json`'s `bundle` section carries the real metadata a shipped app needs: `copyright`,
+`license`/`licenseFile` (pointing at the root [`LICENSE`](LICENSE)), `publisher`, `homepage`, `category`, and a
+short/long description - all surfaced two places: in whatever installer `cargo tauri build` produces for the
+target platform, and in the native About dialog (`tauri::menu::AboutMetadataBuilder`, reading the same config at
+runtime rather than duplicating it into Rust source). `Cargo.toml`'s `[workspace.package]` carries `authors` and
+`description`, which `otto-ui` opts into (`authors.workspace = true`) and which show up in About via
+`package_info()`.
+
+On Windows specifically, `bundle.windows.nsis` is configured for a real installer experience rather than the
+NSIS defaults: `installMode: "both"` (the installer asks whether to install for the current user or all users,
+rather than silently picking one), and a language selector across English/French/German/Spanish
+(`displayLanguageSelector: true`). None of this needs `cargo tauri build`/CI to exercise - it's config validated
+the same way everything else here is: `tauri.conf.json` uses `deny_unknown_fields` throughout, so a wrong field
+name or enum value fails `cargo build` immediately, not at package time.
 
 ### Voice: setup
 
