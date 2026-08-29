@@ -58,7 +58,7 @@ export function CommandBar({
       });
 
       if (talkBack && turn.reply) {
-        speak(turn.reply).catch((err) => console.warn("speak failed:", err));
+        speak(turn.reply).catch((err) => toast.error("Talk-back failed", { description: errorMessage(err) }));
       }
     } catch (err) {
       const message = errorMessage(err);
@@ -77,7 +77,7 @@ export function CommandBar({
       await startRecording();
       setRecording(true);
     } catch (err) {
-      console.warn("voice input unavailable:", err);
+      toast.error("Voice input unavailable", { description: errorMessage(err) });
     }
   }
 
@@ -89,9 +89,11 @@ export function CommandBar({
       if (text.trim()) {
         setInputValue(text.trim());
         await submit(text.trim());
+      } else {
+        toast.info("Didn't catch that", { description: "No speech was detected in the recording." });
       }
     } catch (err) {
-      console.warn("transcription failed:", err);
+      toast.error("Transcription failed", { description: errorMessage(err) });
     }
   }
 

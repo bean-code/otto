@@ -317,20 +317,41 @@ name or enum value fails `cargo build` immediately, not at package time.
 
 ### Voice: setup
 
-Voice is optional - `otto-ui` starts fine without it, the mic button just reports "voice input isn't available"
-if the model is missing. To turn it on:
+Voice is optional - `otto-ui` starts fine without it, and the mic button/talk-back now surface a clear toast
+("voice input isn't available (no whisper model configured)") instead of failing silently. To turn it on, put a
+whisper.cpp GGML model - `base.en` is a good balance of speed/accuracy for a command bar - at the exact path
+`otto_voice::default_model_path()` resolves via the [`directories`](https://docs.rs/directories) crate
+(`ProjectDirs::from("dev", "ayimdomnic", "otto").data_dir()`), which is **platform-specific** - this is the part
+that's easy to get wrong copying a Linux command onto Windows/macOS:
 
-1. Install the Linux system packages above (or nothing extra on macOS/Windows).
-2. Download a whisper.cpp GGML model - `base.en` is a good balance of speed/accuracy for a command bar:
-   ```sh
-   mkdir -p ~/.local/share/otto/models
-   curl -L -o ~/.local/share/otto/models/ggml-base.en.bin \
-     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-   ```
-   (`otto-voice::default_model_path()` looks there by default; set `OTTO_WHISPER_MODEL=/path/to/model.bin` to
-   point elsewhere, or to a multilingual/larger model.)
-3. Run `otto-ui`. Hold the mic button to record, release to transcribe and auto-run; check "Talk back" to have
-   replies spoken aloud through the OS's native TTS voice.
+**Linux** (`$XDG_DATA_HOME` or `~/.local/share`):
+```sh
+mkdir -p ~/.local/share/otto/models
+curl -L -o ~/.local/share/otto/models/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+```
+
+**macOS**:
+```sh
+mkdir -p ~/Library/Application\ Support/dev.ayimdomnic.otto/models
+curl -L -o ~/Library/Application\ Support/dev.ayimdomnic.otto/models/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+```
+
+**Windows** (PowerShell):
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:APPDATA\ayimdomnic\otto\data\models"
+Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" `
+  -OutFile "$env:APPDATA\ayimdomnic\otto\data\models\ggml-base.en.bin"
+```
+
+On any platform, set `OTTO_WHISPER_MODEL=/path/to/model.bin` instead to point somewhere else entirely (a
+multilingual/larger model, or a shared location) - it takes precedence over the default path above.
+
+Run `otto-ui`. Hold the mic button to record, release to transcribe and auto-run; check "Talk back" to have
+replies spoken aloud through the OS's native TTS voice. On Linux, this also needs the system packages listed
+above (`libasound2-dev`/`speech-dispatcher`/`libspeechd-dev`/`cmake`) - nothing extra on macOS/Windows, which
+ship the audio stack and speech engine `cpal`/`tts` talk to natively.
 
 `otto-voice` runs mic capture and TTS on one dedicated OS thread (both `cpal::Stream` and `tts::Tts` are `!Send`,
 so they can't live in async task state) and talks to the rest of the app over a channel - see the module docs in
