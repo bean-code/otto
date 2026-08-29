@@ -24,8 +24,8 @@
 
       <div class="ml-auto flex items-center gap-2.5 no-drag">
         <div class="flex gap-1.5">
-          <span class="pill text-[11px] font-semibold tracking-wide px-2.5 py-0.5 rounded-full border border-border-strong text-muted bg-surface inline-flex items-center gap-1.5" id="pill-anthropic"><span class="dot w-1.5 h-1.5 rounded-full bg-muted-2"></span>Claude</span>
-          <span class="pill text-[11px] font-semibold tracking-wide px-2.5 py-0.5 rounded-full border border-border-strong text-muted bg-surface inline-flex items-center gap-1.5" id="pill-github"><span class="dot w-1.5 h-1.5 rounded-full bg-muted-2"></span>GitHub</span>
+          <span class="pill text-[11px] font-semibold tracking-wide px-2.5 py-0.5 rounded-full border border-border-strong text-muted bg-surface inline-flex items-center gap-1.5" id="pill-model"><span class="dot w-1.5 h-1.5 rounded-full bg-muted-2"></span><span class="label">Model</span></span>
+          <span class="pill text-[11px] font-semibold tracking-wide px-2.5 py-0.5 rounded-full border border-border-strong text-muted bg-surface inline-flex items-center gap-1.5" id="pill-github"><span class="dot w-1.5 h-1.5 rounded-full bg-muted-2"></span><span class="label">GitHub</span></span>
         </div>
         <button class="bg-surface border border-border-strong text-ink w-8 h-8 rounded-lg cursor-pointer flex items-center justify-center transition-colors hover:bg-surface-sunken" id="settings-button" title="Settings">
           <svg class="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M17 7h3"/><circle cx="14" cy="7" r="2"/><path d="M4 12h4M11 12h9"/><circle cx="8" cy="12" r="2"/><path d="M4 17h10M17 17h3"/><circle cx="14" cy="17" r="2"/></svg>
@@ -111,10 +111,11 @@
       <div class="flex-1 overflow-auto">
         <div class="section-heading px-6 pt-5 flex items-baseline justify-between">
           <h2 class="m-0 text-[13px] uppercase tracking-wide text-muted font-semibold">Choose a model</h2>
+          <span class="text-muted-2 text-xs">Any provider Otto supports - configure a key in Settings to unlock its models.</span>
         </div>
-        <main class="grid gap-3.5 px-6 pt-3 pb-7 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]" id="model-grid">
+        <div class="px-6 pt-3 pb-7 flex flex-col gap-6" id="models-container">
           <div class="feed-empty my-16 mx-auto text-muted-2 text-center text-[13px]">Loading models...</div>
-        </main>
+        </div>
       </div>
     </section>
 
@@ -148,30 +149,18 @@
   </div>
 
   <div class="overlay hidden fixed inset-0 bg-ink/35 flex items-center justify-center z-50 animate-fade-in" id="settings-overlay">
-    <div class="modal w-[420px] bg-surface border border-border rounded-2xl p-5.5 shadow-modal">
+    <div class="modal w-[440px] max-h-[80vh] flex flex-col bg-surface border border-border rounded-2xl p-5.5 shadow-modal">
       <div class="flex items-center justify-between mb-1">
         <h2 class="text-base font-bold m-0">Settings</h2>
         <button type="button" id="settings-close-x" class="text-muted-2 hover:text-ink" aria-label="Close">
           <svg class="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </div>
-      <div class="text-muted text-xs mb-4.5">Credentials are stored in your OS keychain - never in a plaintext file.</div>
+      <div class="text-muted text-xs mb-3">Credentials are stored in your OS keychain - never in a plaintext file. Leave a field blank to keep its current value.</div>
 
-      <div class="field mb-3.5">
-        <label class="flex justify-between text-xs font-semibold mb-1.5">Claude API key <span class="field-status font-medium text-muted-2" id="status-anthropic">not set</span></label>
-        <input type="password" id="input-anthropic" placeholder="sk-ant-..." autocomplete="off"
-          class="w-full bg-surface-sunken border border-border text-ink rounded-lg px-2.5 py-2 text-[13px] font-mono focus:outline-none focus:border-accent-2 focus:bg-surface" />
-        <div class="text-muted-2 text-[11px] mt-1.5">From console.anthropic.com. Leave blank to keep the current key.</div>
-      </div>
+      <div class="flex flex-col gap-1.5 overflow-y-auto pr-0.5" id="credential-list"></div>
 
-      <div class="field mb-3.5">
-        <label class="flex justify-between text-xs font-semibold mb-1.5">GitHub token <span class="field-status font-medium text-muted-2" id="status-github">not set</span></label>
-        <input type="password" id="input-github" placeholder="ghp_... or gho_..." autocomplete="off"
-          class="w-full bg-surface-sunken border border-border text-ink rounded-lg px-2.5 py-2 text-[13px] font-mono focus:outline-none focus:border-accent-2 focus:bg-surface" />
-        <div class="text-muted-2 text-[11px] mt-1.5">Needs repo access to read PRs/checks and open PRs. Leave blank to keep the current token.</div>
-      </div>
-
-      <div class="modal-actions flex justify-end gap-2 mt-4.5">
+      <div class="modal-actions flex justify-end gap-2 mt-4">
         <button type="button" id="settings-close" class="border-none rounded-lg px-4 py-2 text-[13px] font-semibold cursor-pointer bg-surface-sunken text-ink border border-border">Close</button>
         <button type="button" id="settings-save" class="border-none rounded-lg px-4 py-2 text-[13px] font-semibold cursor-pointer bg-navy text-white disabled:opacity-50">Save</button>
       </div>
@@ -267,10 +256,9 @@
 
     // ---------- credential status pills + settings modal ----------
     const settingsOverlay = document.getElementById("settings-overlay");
-    const pillAnthropic = document.getElementById("pill-anthropic");
+    const pillModel = document.getElementById("pill-model");
     const pillGithub = document.getElementById("pill-github");
-    const statusAnthropic = document.getElementById("status-anthropic");
-    const statusGithub = document.getElementById("status-github");
+    const credentialList = document.getElementById("credential-list");
 
     function applyPill(el, ok, label) {
       el.classList.remove("text-success", "border-success/30", "bg-success-soft", "text-accent", "border-accent/30", "bg-accent-soft", "text-muted", "border-border-strong", "bg-surface");
@@ -285,35 +273,59 @@
       el.querySelector(".label").textContent = label;
     }
 
-    // Give each pill a stable label span so applyPill doesn't clobber the dot.
-    [pillAnthropic, pillGithub].forEach((el) => {
-      const label = el.textContent.trim();
-      el.innerHTML = `<span class="dot w-1.5 h-1.5 rounded-full bg-muted-2"></span><span class="label">${label}</span>`;
-    });
+    let credentialStatusCache = [];
 
-    async function refreshCredentialStatus() {
+    // Refreshes the toolbar pills (current model's provider + GitHub) and,
+    // if the Settings modal is open, its credential list too. Called on
+    // startup and after anything that could change either (saving
+    // Settings, switching models).
+    async function refreshStatus() {
       try {
-        const status = await invoke("get_credential_status");
-        applyPill(pillAnthropic, status.anthropic, "Claude");
-        applyPill(pillGithub, status.github, "GitHub");
-        statusAnthropic.textContent = status.anthropic ? "configured" : "not set";
-        statusAnthropic.classList.toggle("text-success", status.anthropic);
-        statusGithub.textContent = status.github ? "configured" : "not set";
-        statusGithub.classList.toggle("text-success", status.github);
-        return status;
+        const [status, selected, providers] = await Promise.all([
+          invoke("get_credential_status"),
+          invoke("get_selected_model"),
+          invoke("list_providers"),
+        ]);
+        credentialStatusCache = status;
+
+        const providerInfo = providers.find((p) => p.id === selected.provider);
+        const providerName = providerInfo?.name ?? selected.provider;
+        const providerConfigured = !providerInfo?.needs_api_key || status.find((s) => s.key === `${selected.provider}-api-key`)?.configured;
+        applyPill(pillModel, !!providerConfigured, providerName);
+
+        const github = status.find((s) => s.key === "github-token");
+        applyPill(pillGithub, !!github?.configured, "GitHub");
+
+        if (!settingsOverlay.classList.contains("hidden")) renderCredentialList();
+        return { status, selected, providers };
       } catch (err) {
-        console.warn("failed to read credential status:", err);
+        console.warn("failed to read status:", err);
       }
+    }
+
+    function renderCredentialList() {
+      credentialList.innerHTML = credentialStatusCache
+        .map((cred) => {
+          const inputId = `cred-input-${cred.key}`;
+          return `<div class="field">
+            <label class="flex justify-between text-xs font-semibold mb-1.5">
+              ${escapeHtml(cred.label)}
+              <span class="field-status font-medium ${cred.configured ? "text-success" : "text-muted-2"}">${cred.configured ? "configured" : "not set"}</span>
+            </label>
+            <input type="password" id="${inputId}" data-cred-key="${escapeHtml(cred.key)}" placeholder="Paste key/token..." autocomplete="off"
+              class="w-full bg-surface-sunken border border-border text-ink rounded-lg px-2.5 py-2 text-[13px] font-mono focus:outline-none focus:border-accent-2 focus:bg-surface" />
+          </div>`;
+        })
+        .join("");
     }
 
     function openSettings() {
       settingsOverlay.classList.remove("hidden");
-      refreshCredentialStatus();
+      renderCredentialList();
+      refreshStatus();
     }
     function closeSettings() {
       settingsOverlay.classList.add("hidden");
-      document.getElementById("input-anthropic").value = "";
-      document.getElementById("input-github").value = "";
     }
 
     document.getElementById("settings-button").addEventListener("click", openSettings);
@@ -322,18 +334,18 @@
     settingsOverlay.addEventListener("click", (e) => { if (e.target === settingsOverlay) closeSettings(); });
 
     document.getElementById("settings-save").addEventListener("click", async () => {
-      const anthropic = document.getElementById("input-anthropic").value.trim();
-      const github = document.getElementById("input-github").value.trim();
+      const inputs = [...credentialList.querySelectorAll("input[data-cred-key]")].filter((el) => el.value.trim());
       const saveButton = document.getElementById("settings-save");
-      if (!anthropic && !github) { closeSettings(); return; }
+      if (inputs.length === 0) { closeSettings(); return; }
 
       saveButton.disabled = true;
       try {
-        if (anthropic) await invoke("set_credential", { key: "anthropic-api-key", value: anthropic });
-        if (github) await invoke("set_credential", { key: "github-token", value: github });
+        for (const el of inputs) {
+          await invoke("set_credential", { key: el.dataset.credKey, value: el.value.trim() });
+        }
         toast("Settings saved", "Otto picked up the new credentials immediately.", "success");
         closeSettings();
-        await refreshCredentialStatus();
+        await refreshStatus();
       } catch (err) {
         toast("Couldn't save settings", typeof err === "string" ? err : JSON.stringify(err), "error");
       } finally {
@@ -529,7 +541,7 @@
     }
 
     // ---------- models ----------
-    const modelGrid = document.getElementById("model-grid");
+    const modelsContainer = document.getElementById("models-container");
     const TIER_TONE = {
       flagship: { icon: "bg-accent-soft text-accent", badge: "bg-accent-soft text-accent" },
       balanced: { icon: "bg-accent-2-soft text-accent-2", badge: "bg-accent-2-soft text-accent-2" },
@@ -538,39 +550,89 @@
     };
     const TIER_ICON = { flagship: "sparkle", balanced: "layers", fast: "bolt", frontier: "globe" };
 
+    async function selectModel(provider, model) {
+      try {
+        await invoke("set_selected_model", { provider, model });
+        toast("Model switched", `${provider} / ${model}`, "success", 3000);
+        await Promise.all([loadModels(), refreshStatus()]);
+      } catch (err) {
+        toast("Couldn't switch model", typeof err === "string" ? err : JSON.stringify(err), "error");
+      }
+    }
+
+    function modelCard(m, isSelected) {
+      const tone = TIER_TONE[m.tier] ?? TIER_TONE.balanced;
+      return `<section class="card ${isSelected ? "ring-2 ring-accent-2-soft border-accent-2" : "border-border"} bg-surface border rounded-2xl p-4 shadow-card flex flex-col gap-2.5 cursor-pointer transition-all hover:shadow-elevated hover:-translate-y-0.5" data-provider="${escapeHtml(m.provider)}" data-model-id="${escapeHtml(m.id)}">
+        <div class="card-icon w-9 h-9 rounded-[10px] flex items-center justify-center ${tone.icon}">${iconSvg(TIER_ICON[m.tier] ?? "layers")}</div>
+        <span class="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full self-start ${tone.badge}">${escapeHtml(m.tier)}</span>
+        <h3 class="m-0 text-sm font-bold">${escapeHtml(m.name)}</h3>
+        <p class="desc text-muted text-[12.5px] leading-relaxed m-0 flex-1">${escapeHtml(m.tagline)}</p>
+        <div class="flex items-center justify-between mt-0.5">
+          <code class="text-[11px] text-muted-2">${escapeHtml(m.id)}</code>
+          ${isSelected ? '<strong class="text-[11.5px] text-accent-2">Selected</strong>' : ""}
+        </div>
+      </section>`;
+    }
+
     async function loadModels() {
       try {
-        const [models, current] = await Promise.all([invoke("list_models"), invoke("get_model")]);
-        modelGrid.innerHTML = models
-          .map((m) => {
-            const tone = TIER_TONE[m.tier] ?? TIER_TONE.balanced;
-            const selected = m.id === current;
-            return `<section class="card ${selected ? "ring-2 ring-accent-2-soft border-accent-2" : "border-border"} bg-surface border rounded-2xl p-4 shadow-card flex flex-col gap-2.5 cursor-pointer transition-all hover:shadow-elevated hover:-translate-y-0.5" data-model-id="${escapeHtml(m.id)}">
-              <div class="card-icon w-9 h-9 rounded-[10px] flex items-center justify-center ${tone.icon}">${iconSvg(TIER_ICON[m.tier] ?? "layers")}</div>
-              <span class="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full self-start ${tone.badge}">${escapeHtml(m.tier)}</span>
-              <h3 class="m-0 text-sm font-bold">${escapeHtml(m.name)}</h3>
-              <p class="desc text-muted text-[12.5px] leading-relaxed m-0 flex-1">${escapeHtml(m.tagline)}</p>
-              <div class="flex items-center justify-between mt-0.5">
-                <code class="text-[11px] text-muted-2">${escapeHtml(m.id)}</code>
-                ${selected ? '<strong class="text-[11.5px] text-accent-2">Selected</strong>' : ""}
+        const [models, current, providers, credStatus] = await Promise.all([
+          invoke("list_models"),
+          invoke("get_selected_model"),
+          invoke("list_providers"),
+          invoke("get_credential_status"),
+        ]);
+
+        modelsContainer.innerHTML = providers
+          .map((p) => {
+            const configured = !p.needs_api_key || credStatus.find((s) => s.key === `${p.id}-api-key`)?.configured;
+            const providerModels = models.filter((m) => m.provider === p.id);
+
+            if (!configured) {
+              return `<section>
+                <div class="flex items-center justify-between mb-2">
+                  <h3 class="text-sm font-bold text-muted-2">${escapeHtml(p.name)}</h3>
+                  <button type="button" class="open-settings-link text-[12px] font-semibold text-accent-2 cursor-pointer bg-transparent border-none">Add API key in Settings &rarr;</button>
+                </div>
+              </section>`;
+            }
+
+            const cards = providerModels
+              .map((m) => modelCard(m, m.provider === current.provider && m.id === current.model))
+              .join("");
+            const customSelected = current.provider === p.id && !providerModels.some((m) => m.id === current.model);
+
+            return `<section>
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-bold">${escapeHtml(p.name)}</h3>
+              </div>
+              <div class="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">${cards}</div>
+              <div class="flex items-center gap-2 mt-2.5">
+                <input type="text" data-custom-provider="${escapeHtml(p.id)}"
+                  value="${customSelected ? escapeHtml(current.model) : ""}"
+                  placeholder="${p.needs_api_key ? "Or type any other model id..." : "Model name pulled locally, e.g. llama3.1..."}"
+                  class="flex-1 bg-surface-sunken border ${customSelected ? "border-accent-2" : "border-border"} rounded-lg px-2.5 py-1.5 text-[12.5px] font-mono focus:outline-none focus:border-accent-2" />
+                <button type="button" data-custom-use="${escapeHtml(p.id)}" class="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-surface-sunken border border-border cursor-pointer hover:bg-surface">Use</button>
               </div>
             </section>`;
           })
           .join("");
-        modelGrid.querySelectorAll(".card[data-model-id]").forEach((card) => {
-          card.addEventListener("click", async () => {
-            const id = card.dataset.modelId;
-            try {
-              await invoke("set_model", { model: id });
-              toast("Model switched", id, "success", 3000);
-              loadModels();
-            } catch (err) {
-              toast("Couldn't switch model", typeof err === "string" ? err : JSON.stringify(err), "error");
-            }
+
+        modelsContainer.querySelectorAll(".card[data-model-id]").forEach((card) => {
+          card.addEventListener("click", () => selectModel(card.dataset.provider, card.dataset.modelId));
+        });
+        modelsContainer.querySelectorAll("[data-custom-use]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const providerId = btn.dataset.customUse;
+            const value = modelsContainer.querySelector(`[data-custom-provider="${providerId}"]`).value.trim();
+            if (value) selectModel(providerId, value);
           });
         });
+        modelsContainer.querySelectorAll(".open-settings-link").forEach((btn) => {
+          btn.addEventListener("click", openSettings);
+        });
       } catch (err) {
-        modelGrid.innerHTML = `<div class="feed-empty my-16 mx-auto text-muted-2 text-center text-[13px]">Couldn't load models: ${escapeHtml(typeof err === "string" ? err : JSON.stringify(err))}</div>`;
+        modelsContainer.innerHTML = `<div class="feed-empty my-16 mx-auto text-muted-2 text-center text-[13px]">Couldn't load models: ${escapeHtml(typeof err === "string" ? err : JSON.stringify(err))}</div>`;
       }
     }
 
@@ -605,11 +667,16 @@
 
     // ---------- startup ----------
     loadGreeting();
-    refreshCredentialStatus().then((status) => {
-      if (status && (!status.anthropic || !status.github)) {
+    refreshStatus().then((result) => {
+      if (!result) return;
+      const { status, selected } = result;
+      const selectedKey = `${selected.provider}-api-key`;
+      const modelConfigured = status.find((s) => s.key === selectedKey)?.configured ?? true;
+      const githubConfigured = status.find((s) => s.key === "github-token")?.configured;
+      if (!modelConfigured || !githubConfigured) {
         toast(
           "Finish setting up Otto",
-          !status.anthropic ? "Add your Claude API key in Settings to get started." : "Add a GitHub token in Settings to enable the GitHub skill.",
+          !modelConfigured ? "Add an API key for your selected model's provider in Settings." : "Add a GitHub token in Settings to enable the GitHub skill.",
           "info",
           8000
         );
