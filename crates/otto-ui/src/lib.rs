@@ -432,6 +432,58 @@ async fn build_state() -> anyhow::Result<AppState> {
     })
 }
 
+/// The repos the growth digest looks at - `OTTO_GROWTH_REPOS` (comma-
+/// separated "owner/name" entries) if set, else `OTTO_DEFAULT_REPO` alone,
+/// else empty (meaning "whatever `GithubSkill`'s own default resolves to" -
+/// unchanged single-repo behavior for anyone not opting into the new var).
+fn growth_repos() -> Vec<String> {
+    parse_growth_repos(std::env::var("OTTO_GROWTH_REPOS").ok(), std::env::var("OTTO_DEFAULT_REPO").ok())
+}
+
+/// The parsing logic behind [`growth_repos`], pulled out so it's testable
+/// without mutating process-global env state (`std::env::set_var` in a
+/// `#[test]` races every other test running in parallel).
+fn parse_growth_repos(growth_repos_env: Option<String>, default_repo_env: Option<String>) -> Vec<String> {
+    if let Some(repos) = growth_repos_env {
+        return repos.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect();
+    }
+    default_repo_env.into_iter().collect()
+}
+
+#[cfg(test)]
+mod growth_repos_tests {
+    use super::parse_growth_repos;
+
+    #[test]
+    fn splits_and_trims_comma_separated_repos() {
+        let repos = parse_growth_repos(Some(" acme/widgets, acme/gadgets ,acme/thing".to_string()), None);
+        assert_eq!(repos, vec!["acme/widgets", "acme/gadgets", "acme/thing"]);
+    }
+
+    #[test]
+    fn falls_back_to_default_repo_when_unset() {
+        let repos = parse_growth_repos(None, Some("acme/widgets".to_string()));
+        assert_eq!(repos, vec!["acme/widgets"]);
+    }
+
+    #[test]
+    fn empty_when_neither_is_set() {
+        assert!(parse_growth_repos(None, None).is_empty());
+    }
+
+    #[test]
+    fn growth_repos_takes_precedence_over_default_repo() {
+        let repos = parse_growth_repos(Some("acme/widgets".to_string()), Some("other/repo".to_string()));
+        assert_eq!(repos, vec!["acme/widgets"]);
+    }
+
+    #[test]
+    fn ignores_blank_entries() {
+        let repos = parse_growth_repos(Some("acme/widgets,,  ,acme/gadgets".to_string()), None);
+        assert_eq!(repos, vec!["acme/widgets", "acme/gadgets"]);
+    }
+}
+
 /// Spawns the background task that runs `run_growth_digest` on a repeating
 /// interval (`OTTO_GROWTH_INTERVAL_HOURS`, default 24h) for as long as the
 /// app is running. Reads `state.runtime`/`state.selected` fresh every tick
@@ -442,6 +494,7 @@ fn spawn_growth_digest(state: Arc<AppState>) {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(24);
+    let repos = growth_repos();
 
     tauri::async_runtime::spawn(async move {
         let mut ticker =
@@ -456,6 +509,7 @@ fn spawn_growth_digest(state: Arc<AppState>) {
                 &selected.provider,
                 &selected.model,
                 &*state.store,
+                &repos,
             )
             .await
             {

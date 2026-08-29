@@ -377,9 +377,12 @@ second always-on daemon just to relaunch a GUI app.
 
 While running, `otto-ui` periodically (`OTTO_GROWTH_INTERVAL_HOURS`, default `24`) looks at your current open-PR
 activity and asks your currently-selected model for one short, specific observation grounded in that data - then
-sends it as a desktop notification if it found something worth saying (see `otto_core::run_growth_digest`). It's intentionally narrow
-for now: only open PRs on the default repo, not a full cross-repo activity history - extending that is a matter of
-growing `otto-skill-github`'s tool surface, not the digest logic itself.
+sends it as a desktop notification if it found something worth saying (see `otto_core::run_growth_digest`).
+Which repos it looks at: `OTTO_GROWTH_REPOS` (comma-separated `owner/name` entries, e.g.
+`acme/widgets,acme/gadgets`) if set - each repo's open PRs are fetched and folded into one digest, not one
+notification per repo - else `OTTO_DEFAULT_REPO` alone, else whatever `GithubSkill`'s own default resolves to.
+Still intentionally narrow in one dimension: only open PRs, not a full activity history (commits, merged/closed
+PRs) - extending that is a matter of growing `otto-skill-github`'s tool surface, not the digest logic itself.
 
 ### Activities & persistence
 
