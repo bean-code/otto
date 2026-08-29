@@ -15,8 +15,10 @@ a desktop app or a CLI, whichever fits the moment - that turns a plain-English r
 against the tools you actually use, instead of another chat window you have to translate your intent into
 manually. Say "show me my open PRs" and Otto doesn't describe how it would check; it checks, via GitHub's real
 API, and hands back the actual list. That's the whole design premise: every capability is a typed `Skill` with a
-real implementation behind it, Claude decides *which* one a request needs, and the result you get back is data
-your dashboard or terminal can render, not just prose to read.
+real implementation behind it, an LLM decides *which* one a request needs, and the result you get back is data
+your dashboard or terminal can render, not just prose to read - and which LLM is genuinely your choice: Claude by
+default, or any of ten other providers (OpenAI, Gemini, Groq, DeepSeek, Mistral, xAI, OpenRouter, Perplexity,
+Z.ai, or a fully local Ollama model) from the app's Models tab.
 
 Today that means GitHub - list open PRs, check CI/check-run status, open a PR from a branch - plus a first pass
 at the things around the edges of "get my engineering work done": voice in and out, a working-hours schedule so
@@ -28,9 +30,10 @@ versus staged.
 
 - **GitHub, for real.** Open PRs, CI status, opening a PR from a branch - not a description of what it would do,
   an actual `octocrab` call against the GitHub API.
-- **One agent loop, any provider.** The Claude round-trip and tool-calling loop are delegated to
-  [`llmprism`](https://crates.io/crates/llmprism) instead of hand-rolled - swap providers or add middleware
-  without touching `otto-core` or any skill.
+- **One agent loop, eleven providers.** Anthropic, OpenAI, Gemini, Groq, DeepSeek, Mistral, xAI, OpenRouter,
+  Perplexity, Z.ai, and Ollama (local, no API key) - all via [`llmprism`](https://crates.io/crates/llmprism)
+  instead of a hand-rolled Claude-only client. Pick one from the app's Models tab; nothing in `otto-core` or any
+  skill knows or cares which provider is behind a given request.
 - **A persona that isn't generic.** The system prompt carries who you are (see `otto-core::DEFAULT_PERSONA`), so
   replies land at the altitude of a peer conversation, not a first-time-user tutorial.
 - **Voice in, voice back - fully local.** Push-to-talk mic capture, `whisper.cpp` transcription, OS-native
@@ -41,14 +44,15 @@ versus staged.
   surfaces one grounded, specific observation - not generic advice, not a leaderboard.
 - **Cross-platform by construction.** CI builds, tests, and smoke-runs the whole workspace on Linux, macOS, and
   Windows on every push - see the badge above.
-- **Set up from inside the app.** A native Settings panel (also reachable from the OS menu bar) writes your
-  Claude/GitHub credentials straight to the keychain - no editing a config file or restarting to pick them up.
+- **Set up from inside the app.** A native Settings panel (also reachable from the OS menu bar) writes API keys
+  and your GitHub token straight to the keychain - no editing a config file or restarting to pick them up.
 - **Real, queryable activity feed.** Every command, growth-digest note, and schedule event is persisted to a
   local SQLite database and readable back from an Activities tab in the app - built that way specifically so a
   future API layer over `otto-core` has real data to serve, not a log file to re-parse.
-- **A model picker, not a config flag.** Switch between Claude models from a card grid in the app (each with a
-  real tradeoff, not just a name) - the choice persists across restarts and takes effect on your very next
-  command, no editing an env var.
+- **A model picker, not a config flag.** Switch between providers and models from a card grid in the app, grouped
+  by provider, each with a real tradeoff rather than just a name - plus a free-typed model id for anything not
+  curated (essential for Ollama's local catalog and OpenRouter's hundreds of proxied models). The choice persists
+  across restarts and takes effect on your very next command.
 - **Extensible on purpose.** A skill is a small Rust crate implementing one trait - no plugin runtime to trust,
   no manifest to write. [`docs/SKILLS.md`](docs/SKILLS.md) walks through building one end to end, and every
   registered skill shows up in the app's Skills tab automatically.
@@ -64,7 +68,7 @@ trait surface:
 
 | Crate | What it is |
 |---|---|
-| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name, groups by skill for the Skills tab), `AgentLoop`, `CredentialStore` (OS keychain), `ActivityLog`/`SqliteStore` (local SQLite - queryable, not a flat log; also holds small persisted settings like the selected model), `ActiveWindow` (working-hours scheduling), `MODEL_CATALOG`, the growth-digest job. |
+| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name, groups by skill for the Skills tab), `AgentLoop`, `CredentialStore` (OS keychain), `ActivityLog`/`SqliteStore` (local SQLite - queryable, not a flat log; also holds small persisted settings like the selected model), `ActiveWindow` (working-hours scheduling), `PROVIDER_CATALOG`/`MODEL_CATALOG`, the growth-digest job. |
 | `otto-skill-github` | **Fully working.** List open PRs, check CI/check-run status, open a PR from a branch. Built on [`octocrab`](https://docs.rs/octocrab). |
 | `otto-skill-deploy` | Scaffolded (compiles, tools defined) but not yet implemented - intended for triggering/monitoring GitHub Actions workflow runs. |
 | `otto-skill-calendar` | Scaffolded, not yet implemented - intended for Google Calendar (picked over Outlook as the starting provider). |
@@ -75,14 +79,38 @@ trait surface:
 
 ### The agent loop
 
-`otto-core::AgentLoop` doesn't talk to Claude directly - it hands the request to
-[`llmprism`](https://crates.io/crates/llmprism), a Rust LLM-provider abstraction (Anthropic, OpenAI, and others
-behind one interface), with every registered skill's tools exposed as `llmprism::Tool`s. `llmprism` runs the actual
-model <-> tool round-trips (Claude decides to call `github_list_open_prs`, `llmprism` runs it via `SkillRegistry`,
-sends the result back, repeats up to a step cap); `AgentLoop` just records what happened for the UI/history and
-returns the final reply. Swapping providers, or wrapping one in middleware (logging, a default system prompt,
-response caching), is entirely an `llmprism::Registry` concern - nothing in `otto-core` or any skill needs to
-change.
+`otto-core::AgentLoop` doesn't talk to any one provider directly - it hands the request to
+[`llmprism`](https://crates.io/crates/llmprism), a Rust LLM-provider abstraction, with every registered skill's
+tools exposed as `llmprism::Tool`s. `llmprism` runs the actual model <-> tool round-trips (the model decides to
+call `github_list_open_prs`, `llmprism` runs it via `SkillRegistry`, sends the result back, repeats up to a step
+cap); `AgentLoop` just records what happened for the UI/activity feed and returns the final reply. Swapping
+providers, or wrapping one in middleware (logging, a default system prompt, response caching), is entirely an
+`llmprism::Registry` concern - nothing in `otto-core` or any skill needs to change, or even knows which provider
+answered a given request.
+
+### Multiple providers
+
+Otto isn't Claude-only - `otto_core::PROVIDER_CATALOG` lists every provider it knows how to register (Anthropic,
+OpenAI, Gemini, Groq, DeepSeek, Mistral, xAI, OpenRouter, Perplexity, Z.ai, Ollama), and `otto_core::MODEL_CATALOG`
+is a curated starting set of models per provider - each entry tagged with a tier (`flagship`/`balanced`/`fast`/
+`frontier`) and a one-line tradeoff, not just a bare id. A provider's credential lives under one consistent
+keychain key (`"{provider}-api-key"`, via `otto_core::credential_key`) except Ollama, which needs none - it's a
+local server, always registered once compiled in, the same way `llmprism::Registry::from_env()` treats it.
+
+**Adding a new provider is three small, mechanical edits, not an architecture change:** a row in
+`PROVIDER_CATALOG`, its `llmprism` Cargo feature in the workspace `Cargo.toml`, and one match arm in
+`register_provider` (in `otto-ui`/`otto-cli`) calling that provider's `XProvider::new(api_key)` - every provider
+`llmprism` exposes for text generation follows that exact same constructor shape.
+
+Curated model ids inevitably drift - every provider ships new models every few months. Rather than chase that,
+the Models tab always offers a free-typed model id alongside the curated cards, for any provider (not just
+Ollama/OpenRouter, which have no meaningful curated list at all - OpenRouter proxies hundreds of other providers'
+models, Ollama's catalog is whatever you've pulled locally). A stale entry in `MODEL_CATALOG` costs you one wrong
+suggestion, never a broken app.
+
+`otto-cli` picks up whatever provider/model is currently selected in `otto-ui` by default (same local database,
+same settings table) - `--provider`/`--model` or `OTTO_PROVIDER`/`OTTO_MODEL` override it per-invocation without
+changing what the app has selected.
 
 ### Persona
 
@@ -96,18 +124,24 @@ disables the persona addition entirely.
 
 Nothing is ever written to a plaintext config file. Credentials are read through `otto-core::KeyringStore`, which
 stores/reads secrets in the OS keychain via the [`keyring`](https://docs.rs/keyring) crate, under the service name
-`otto-assistant`. Two keys are used today:
+`otto-assistant`. Each provider in `otto_core::PROVIDER_CATALOG` that needs an API key uses one consistent key
+name - `"{provider}-api-key"` (`anthropic-api-key`, `openai-api-key`, `gemini-api-key`, and so on; see
+`otto_core::credential_key`) - plus one more that isn't an LLM provider at all:
 
-- `anthropic-api-key` - your Claude API key.
 - `github-token` - a GitHub personal access token (needs `repo` scope for private repos; `public_repo` is enough
   for public ones) with permission to read PRs/checks and open PRs on the repos you point it at.
 
+You only need to set a key for the provider(s) you actually plan to use - Ollama needs none at all (it's a local
+server, always available once its Cargo feature is compiled in; if nothing's listening on `localhost`, a request
+against it just fails at call time, the same as any other unreachable server).
+
 **In `otto-ui`, the easiest way is Settings** - the gear icon in the toolbar, or "Otto > Settings..." in the
-native menu bar. Paste a key in and hit Save; it's written straight to the keychain and picked up immediately
-(the app rebuilds its GitHub/Claude clients on save - no restart needed). The toolbar's status pills show at a
-glance whether each credential is configured. `otto-ui` no longer requires the Claude key to exist before it'll
-even open - launch it with nothing configured and it starts fine, `run_command` just replies with a clear
-"add your Claude API key in Settings" instead of a working answer until you do.
+native menu bar. It lists every provider with a status ("configured"/"not set") and a password field each; paste
+a key in and hit Save, and it's written straight to the keychain and picked up immediately (the app rebuilds its
+provider registry on save - no restart needed). The toolbar's status pills show at a glance whether the
+*currently selected* model's provider (and GitHub) are configured. `otto-ui` doesn't require any key to exist
+before it'll open - launch it with nothing configured and it starts fine; `run_command` just replies with a clear
+"add your \<Provider\> API key in Settings" instead of a working answer until you do.
 
 For `otto-cli`, or to script it, set them with any keychain tool that writes to the `otto-assistant` service, or
 from Rust:
@@ -117,6 +151,7 @@ use otto_core::{CredentialStore, KeyringStore};
 
 let store = KeyringStore::new();
 store.set("anthropic-api-key", "sk-ant-...").await?;
+store.set("openai-api-key", "sk-...").await?;
 store.set("github-token", "ghp_...").await?;
 ```
 
@@ -145,10 +180,13 @@ variable Otto reads and what each one defaults to; keep it in sync if you add a 
 ```sh
 cargo run -p otto-cli -- "show me my open PRs"
 cargo run -p otto-cli -- --repo owner/name "open a PR from my-branch"
+cargo run -p otto-cli -- --provider openai --model gpt-5.6-terra "show me my open PRs"
 ```
 
 `--repo` (or `OTTO_DEFAULT_REPO`) sets the default `owner/name` GitHub commands fall back to when a command doesn't
-name one. `--model` (or `OTTO_MODEL`) overrides the Claude model; defaults to `claude-opus-5`.
+name one. `--provider`/`--model` (or `OTTO_PROVIDER`/`OTTO_MODEL`) pick the LLM; if neither the flag nor the env
+var is set, the CLI falls back to whatever's currently selected in `otto-ui` (same local database), and only
+falls back further to `anthropic`/`claude-opus-5` if nothing's ever been selected anywhere.
 
 ### Desktop app (Tauri)
 
@@ -196,9 +234,11 @@ frontend is a matter of adding a crate under `crates/otto-ui/frontend/`, pointin
 - **Four tabs**: **Dashboard** (the PR/deployment/meeting cards, command bar, voice, and a time-of-day greeting -
   "Good morning/afternoon/evening" plus your OS account name, read via `get_greeting_name`), **Activities** (a
   single feed - commands, growth-digest notes, schedule events - via `list_activities`, see Activities &
-  persistence above), **Models** (a card picker over `otto-core::MODEL_CATALOG`, not a dropdown - each model's a
-  card with a tier badge and a one-line tradeoff; clicking one calls `set_model`, which persists the choice via
-  `SqliteStore`'s settings table and takes effect on the next command, no restart), and **Skills** (every
+  persistence above), **Models** (grouped by provider - a card grid over `otto-core::MODEL_CATALOG`, not a
+  dropdown, each card with a tier badge and a one-line tradeoff, plus a free-typed model id per provider;
+  clicking a card or submitting a custom id calls `set_selected_model`, which persists the choice via
+  `SqliteStore`'s settings table and takes effect on the next command, no restart - providers with no key
+  configured show a compact "add a key in Settings" row instead of empty cards), and **Skills** (every
   registered skill and the tools it exposes, via `list_skills` - see [`docs/SKILLS.md`](docs/SKILLS.md) if you
   want to add one).
 - **A light, card-based visual language** modeled on a Google Material-style dashboard mockup in `docs/ux.webp` -
@@ -208,9 +248,9 @@ frontend is a matter of adding a crate under `crates/otto-ui/frontend/`, pointin
   `cargo build` - see `crates/otto-ui/frontend/README.md` for how to regenerate it after a markup/theme change.
 - **Hand-authored icons, not emoji** - a small set of inline SVGs (outline style, `currentColor` stroke, no icon
   font or external package) defined in `index.html`'s script and rendered via a local `iconSvg()` helper.
-- **Toolbar status pills** for each credential (Claude/GitHub) that flip from amber "not set" to green
-  "configured" the moment Settings saves - `get_credential_status` never returns the values themselves, only
-  whether each is set.
+- **Toolbar status pills** for the currently selected model's provider and for GitHub, flipping from amber
+  "not set" to green "configured" the moment Settings saves - `get_credential_status` never returns the values
+  themselves, only whether each is set.
 - **Toast notifications** for every command's outcome (success, failure, and the "finish setting up" nudge on
   first launch if a credential is missing) - in addition to, not instead of, the OS-level desktop notifications
   `notify_desktop` can send.
@@ -277,8 +317,8 @@ second always-on daemon just to relaunch a GUI app.
 ### Growth digest
 
 While running, `otto-ui` periodically (`OTTO_GROWTH_INTERVAL_HOURS`, default `24`) looks at your current open-PR
-activity and asks Claude for one short, specific observation grounded in that data - then sends it as a desktop
-notification if it found something worth saying (see `otto_core::run_growth_digest`). It's intentionally narrow
+activity and asks your currently-selected model for one short, specific observation grounded in that data - then
+sends it as a desktop notification if it found something worth saying (see `otto_core::run_growth_digest`). It's intentionally narrow
 for now: only open PRs on the default repo, not a full cross-repo activity history - extending that is a matter of
 growing `otto-skill-github`'s tool surface, not the digest logic itself.
 
