@@ -3,8 +3,8 @@ use std::sync::Arc;
 use llmprism::providers::anthropic::AnthropicProvider;
 use llmprism::Registry as LlmRegistry;
 use otto_core::{
-    ActiveWindow, AgentLoop, AgentTurn, CredentialStore, HistoryEntry, HistoryStore, KeyringStore, SkillRegistry,
-    SqliteHistory, DEFAULT_PERSONA,
+    ActiveWindow, ActivityEntry, ActivityKind, ActivityLog, AgentLoop, AgentTurn, CredentialStore, KeyringStore,
+    ModelInfo, SkillInfo, SkillRegistry, SqliteStore, DEFAULT_PERSONA, MODEL_CATALOG,
 };
 use otto_skill_calendar::CalendarSkill;
 use otto_skill_deploy::DeploySkill;
@@ -19,6 +19,7 @@ use tokio::sync::RwLock;
 const DEFAULT_MODEL: &str = "claude-opus-5";
 const ANTHROPIC_KEY: &str = "anthropic-api-key";
 const GITHUB_KEY: &str = "github-token";
+const MODEL_SETTING_KEY: &str = "model";
 
 /// The parts of Otto's runtime that depend on credentials, held behind a
 /// lock so a Settings save can swap in a freshly-built one without
@@ -35,9 +36,9 @@ struct AppState {
     credentials: Arc<dyn CredentialStore>,
     runtime: RwLock<SharedRuntime>,
     provider: String,
-    model: String,
+    model: RwLock<String>,
     persona: String,
-    history: Arc<dyn HistoryStore>,
+    store: Arc<SqliteStore>,
     voice: Option<VoiceEngine>,
 }
 
@@ -45,17 +46,11 @@ impl AppState {
     /// Builds a fresh `AgentLoop` from the current runtime snapshot.
     /// Cheap - `AgentLoop` just holds clones of `Arc`s and small strings, so
     /// there's no need to keep a long-lived instance around and worry about
-    /// it going stale after a credential change.
+    /// it going stale after a credential or model change.
     async fn agent(&self) -> AgentLoop {
         let rt = self.runtime.read().await;
-        AgentLoop::new(
-            rt.llm.clone(),
-            self.provider.clone(),
-            self.model.clone(),
-            self.persona.clone(),
-            rt.registry.clone(),
-            self.history.clone(),
-        )
+        let model = self.model.read().await.clone();
+        AgentLoop::new(rt.llm.clone(), self.provider.clone(), model, self.persona.clone(), rt.registry.clone(), self.store.clone())
     }
 
     async fn rebuild_runtime(&self) -> anyhow::Result<()> {
@@ -79,10 +74,51 @@ async fn run_command(state: tauri::State<'_, Arc<AppState>>, input: String) -> R
     state.agent().await.run(&input).await.map_err(|e| e.to_string())
 }
 
-/// Most recent history entries, newest first, for the History panel.
+/// Most recent activity first (commands, growth-digest notes, schedule
+/// events - one feed), for the Activities tab.
 #[tauri::command]
-async fn list_history(state: tauri::State<'_, Arc<AppState>>, limit: Option<u32>) -> Result<Vec<HistoryEntry>, String> {
-    state.history.list_recent(limit.unwrap_or(100) as usize).await.map_err(|e| e.to_string())
+async fn list_activities(state: tauri::State<'_, Arc<AppState>>, limit: Option<u32>) -> Result<Vec<ActivityEntry>, String> {
+    state.store.list_recent(limit.unwrap_or(100) as usize).await.map_err(|e| e.to_string())
+}
+
+/// The curated model picker's contents - a fixed catalog, not
+/// user-editable, so this needs no state.
+#[tauri::command]
+fn list_models() -> Vec<ModelInfo> {
+    MODEL_CATALOG.to_vec()
+}
+
+#[tauri::command]
+async fn get_model(state: tauri::State<'_, Arc<AppState>>) -> Result<String, String> {
+    Ok(state.model.read().await.clone())
+}
+
+/// Switches the active model immediately and persists the choice so it
+/// survives a restart.
+#[tauri::command]
+async fn set_model(state: tauri::State<'_, Arc<AppState>>, model: String) -> Result<(), String> {
+    if !MODEL_CATALOG.iter().any(|m| m.id == model) {
+        return Err(format!("unknown model '{model}'"));
+    }
+    state.store.set_setting(MODEL_SETTING_KEY, &model).await.map_err(|e| e.to_string())?;
+    *state.model.write().await = model;
+    Ok(())
+}
+
+/// Every registered skill and the tools it exposes, for a "what can Otto
+/// do" browser - see `docs/SKILLS.md` for how to add a new one.
+#[tauri::command]
+async fn list_skills(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<SkillInfo>, String> {
+    Ok(state.runtime.read().await.registry.skills())
+}
+
+/// A first-name-ish greeting for the dashboard header, from the OS
+/// account - never asked for, never stored; just whatever the OS already
+/// knows. `None` if neither env var is set, which the frontend falls back
+/// on gracefully.
+#[tauri::command]
+fn get_greeting_name() -> Option<String> {
+    std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok()
 }
 
 /// Whether each known credential is currently set - never the value itself.
@@ -154,7 +190,14 @@ async fn build_state() -> anyhow::Result<AppState> {
     let credentials: Arc<dyn CredentialStore> = Arc::new(KeyringStore::new());
     let runtime = build_runtime(credentials.clone()).await?;
 
-    let model = std::env::var("OTTO_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+    let store = Arc::new(SqliteStore::open(SqliteStore::default_path()?)?);
+
+    // A model picked via Settings outlives the process it was picked in;
+    // OTTO_MODEL/the built-in default are only the first-run fallback.
+    let model = match store.get_setting(MODEL_SETTING_KEY).await? {
+        Some(saved) => saved,
+        None => std::env::var("OTTO_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string()),
+    };
     let persona = std::env::var("OTTO_PERSONA").unwrap_or_else(|_| DEFAULT_PERSONA.to_string());
 
     let voice = match otto_voice::default_model_path() {
@@ -171,23 +214,21 @@ async fn build_state() -> anyhow::Result<AppState> {
         }
     };
 
-    let history: Arc<dyn HistoryStore> = Arc::new(SqliteHistory::open(SqliteHistory::default_path()?)?);
-
     Ok(AppState {
         credentials,
         runtime: RwLock::new(runtime),
         provider: "anthropic".to_string(),
-        model,
+        model: RwLock::new(model),
         persona,
-        history,
+        store,
         voice,
     })
 }
 
 /// Spawns the background task that runs `run_growth_digest` on a repeating
 /// interval (`OTTO_GROWTH_INTERVAL_HOURS`, default 24h) for as long as the
-/// app is running. Reads `state.runtime` fresh every tick (rather than
-/// capturing a snapshot once at startup) so a credential change made via
+/// app is running. Reads `state.runtime`/`state.model` fresh every tick
+/// (rather than capturing a snapshot once at startup) so a change made via
 /// Settings takes effect on the very next tick, not just after a restart.
 fn spawn_growth_digest(state: Arc<AppState>) {
     let interval_hours: u64 = std::env::var("OTTO_GROWTH_INTERVAL_HOURS")
@@ -200,7 +241,9 @@ fn spawn_growth_digest(state: Arc<AppState>) {
         loop {
             ticker.tick().await;
             let rt = state.runtime.read().await;
-            if let Err(e) = otto_core::run_growth_digest(&rt.registry, &rt.llm, &state.provider, &state.model).await {
+            let model = state.model.read().await.clone();
+            if let Err(e) = otto_core::run_growth_digest(&rt.registry, &rt.llm, &state.provider, &model, &*state.store).await
+            {
                 tracing::debug!("growth digest skipped this cycle: {e}");
             }
         }
@@ -248,9 +291,18 @@ pub fn run() {
                 // off - a single sleep-then-exit, not a poll loop.
                 let handle = app.handle().clone();
                 let sleep_for = window.duration_until_next_boundary();
+                let state_for_schedule = state.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(sleep_for).await;
                     tracing::info!("Otto's scheduled active window has ended; exiting");
+                    let _ = state_for_schedule
+                        .store
+                        .record_event(
+                            ActivityKind::Schedule,
+                            "Scheduled shutdown",
+                            "Otto's active-hours window ended - shutting down until it reopens.",
+                        )
+                        .await;
                     handle.exit(0);
                 });
             }
@@ -294,7 +346,12 @@ pub fn run() {
             start_recording,
             stop_recording,
             speak,
-            list_history,
+            list_activities,
+            list_models,
+            get_model,
+            set_model,
+            list_skills,
+            get_greeting_name,
             get_credential_status,
             set_credential
         ])

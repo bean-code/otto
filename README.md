@@ -43,9 +43,15 @@ versus staged.
   Windows on every push - see the badge above.
 - **Set up from inside the app.** A native Settings panel (also reachable from the OS menu bar) writes your
   Claude/GitHub credentials straight to the keychain - no editing a config file or restarting to pick them up.
-- **Real, queryable history.** Every command is persisted to a local SQLite database and readable back from a
-  History tab in the app - built that way specifically so a future API layer over `otto-core` has real data to
-  serve, not a log file to re-parse.
+- **Real, queryable activity feed.** Every command, growth-digest note, and schedule event is persisted to a
+  local SQLite database and readable back from an Activities tab in the app - built that way specifically so a
+  future API layer over `otto-core` has real data to serve, not a log file to re-parse.
+- **A model picker, not a config flag.** Switch between Claude models from a card grid in the app (each with a
+  real tradeoff, not just a name) - the choice persists across restarts and takes effect on your very next
+  command, no editing an env var.
+- **Extensible on purpose.** A skill is a small Rust crate implementing one trait - no plugin runtime to trust,
+  no manifest to write. [`docs/SKILLS.md`](docs/SKILLS.md) walks through building one end to end, and every
+  registered skill shows up in the app's Skills tab automatically.
 
 ## How it's put together
 
@@ -55,7 +61,7 @@ trait surface:
 
 | Crate | What it is |
 |---|---|
-| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name), `AgentLoop`, `CredentialStore` (OS keychain), `HistoryStore` (local SQLite, queryable and readable back - not a flat log), `ActiveWindow` (working-hours scheduling), the growth-digest job. |
+| `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name, groups by skill for the Skills tab), `AgentLoop`, `CredentialStore` (OS keychain), `ActivityLog`/`SqliteStore` (local SQLite - queryable, not a flat log; also holds small persisted settings like the selected model), `ActiveWindow` (working-hours scheduling), `MODEL_CATALOG`, the growth-digest job. |
 | `otto-skill-github` | **Fully working.** List open PRs, check CI/check-run status, open a PR from a branch. Built on [`octocrab`](https://docs.rs/octocrab). |
 | `otto-skill-deploy` | Scaffolded (compiles, tools defined) but not yet implemented - intended for triggering/monitoring GitHub Actions workflow runs. |
 | `otto-skill-calendar` | Scaffolded, not yet implemented - intended for Google Calendar (picked over Outlook as the starting provider). |
@@ -180,18 +186,25 @@ frontend is a matter of adding a crate under `crates/otto-ui/frontend/`, pointin
   Quit, and a standard Edit menu so cut/copy/paste and their OS keyboard shortcuts work in text fields. This is
   genuinely native chrome (`AppKit`/`GTK`/`Win32` menus, not anything drawn in the webview) - Settings there and
   the in-window gear button both open the same panel, just via different triggers (the menu item emits a
-  `open-settings` event the frontend listens for).
-- **Two tabs**: Dashboard (the PR/deployment/meeting panels, command bar, voice) and History (every past command,
-  read live from the SQLite store via `list_history` - see below).
+  `open-settings` event the frontend listens for). The window itself keeps its normal OS title bar and
+  decorations - "native" means real OS menu/window chrome, not a custom-drawn titlebar replacing it.
+- **Four tabs**: **Dashboard** (the PR/deployment/meeting cards, command bar, voice, and a time-of-day greeting -
+  "Good morning/afternoon/evening" plus your OS account name, read via `get_greeting_name`), **Activities** (a
+  single feed - commands, growth-digest notes, schedule events - via `list_activities`, see History &
+  persistence above), **Models** (a card picker over `otto-core::MODEL_CATALOG`, not a dropdown - each model's a
+  card with a tier badge and a one-line tradeoff; clicking one calls `set_model`, which persists the choice via
+  `SqliteStore`'s settings table and takes effect on the next command, no restart), and **Skills** (every
+  registered skill and the tools it exposes, via `list_skills` - see [`docs/SKILLS.md`](docs/SKILLS.md) if you
+  want to add one).
+- **A light, card-based visual language** modeled on a Google Material-style dashboard mockup in `docs/ux.webp` -
+  white surfaces, soft shadows, a card grid for anything selectable (models, skills, the dashboard panels), and a
+  greeting header with a brand-colored accent flourish, in place of the earlier dark theme.
 - **Toolbar status pills** for each credential (Claude/GitHub) that flip from amber "not set" to green
   "configured" the moment Settings saves - `get_credential_status` never returns the values themselves, only
   whether each is set.
 - **Toast notifications** for every command's outcome (success, failure, and the "finish setting up" nudge on
   first launch if a credential is missing) - in addition to, not instead of, the OS-level desktop notifications
   `notify_desktop` can send.
-
-The window keeps its normal OS title bar and decorations - "native" here means real OS menu/window chrome, not a
-custom-drawn titlebar replacing it.
 
 ### Voice: setup
 
@@ -238,17 +251,22 @@ notification if it found something worth saying (see `otto_core::run_growth_dige
 for now: only open PRs on the default repo, not a full cross-repo activity history - extending that is a matter of
 growing `otto-skill-github`'s tool surface, not the digest logic itself.
 
-### History & persistence
+### Activities & persistence
 
-Every command - input, reply, and the structured `steps` data each skill returned - is written to a local SQLite
-database (`otto_core::SqliteHistory`, via [`rusqlite`](https://docs.rs/rusqlite)'s `bundled` feature, so there's
-no system `libsqlite3` dependency to install) at `history.sqlite3` in the OS data directory. This is deliberately
-not a flat JSONL log: the whole point of `HistoryStore::list_recent` existing as a real trait method (not just
-`record`) is that `otto-ui`'s History tab, and anything built on `otto-core` later - a REST API serving the same
-engine headlessly, say - reads it back with an actual query (`ORDER BY id DESC LIMIT ?`) instead of parsing a
-growing file front to back on every request. The schema is intentionally simple today (one `history` table,
-`steps` as a JSON column) - normalizing `steps` into its own table with a foreign key is the natural next step
-once something needs to query *across* steps (e.g. "every time `github_open_pr` was called").
+Everything Otto does - a command (input, reply, and the structured `steps` data each skill returned), a
+growth-digest note, a schedule shutdown - is written to one local SQLite database (`otto_core::SqliteStore`, via
+[`rusqlite`](https://docs.rs/rusqlite)'s `bundled` feature, so there's no system `libsqlite3` dependency to
+install) at `otto.sqlite3` in the OS data directory, and read back by `otto-ui`'s Activities tab through
+`ActivityLog::list_recent`. This is deliberately not a flat log: the whole point of `list_recent` existing as a
+real query (not just an appender) is that the Activities tab, and anything built on `otto-core` later - a REST
+API serving the same engine headlessly, say - gets an actual `ORDER BY id DESC LIMIT ?`, not a growing file to
+parse front to back on every request. `SqliteStore` also holds a small `settings` table for things that need to
+survive a restart but aren't secrets - the selected model, today - so there's one local database file, not a
+database plus a scattering of config files.
+
+The `activities` table's schema is intentionally simple (`kind` + `title` + `detail` + a `steps_json` column,
+empty for anything that isn't a command) - normalizing `steps` into its own table with a foreign key is the
+natural next step once something needs to query *across* steps (e.g. "every time `github_open_pr` was called").
 
 ## What "PR round-trip" looks like
 
@@ -262,9 +280,9 @@ Typing `show me my open PRs` in either the CLI or the command bar:
    structured PR list.
 3. The result goes back to Claude, which writes a final reply; `AgentLoop` returns `{ reply, steps }` - `steps`
    carries the structured data (used by the UI to render the PR panel) alongside the summary.
-4. The turn is written to `history.sqlite3` in the OS data directory (`~/.local/share/otto` on Linux) - a real
-   table (`id`, `timestamp`, `input`, `reply`, `steps_json`), not a flat log, so `otto-ui`'s History tab (and any
-   future API server) can query it directly instead of re-parsing an ever-growing file.
+4. The turn is written to `otto.sqlite3` in the OS data directory (`~/.local/share/otto` on Linux) - a real table
+   (`id`, `timestamp`, `kind`, `title`, `detail`, `steps_json`), not a flat log, so `otto-ui`'s Activities tab
+   (and any future API server) can query it directly instead of re-parsing an ever-growing file.
 
 None of this is provider-specific plumbing you'd have to rewrite for a different model or a different skill: step
 1 comes from whatever's registered in `SkillRegistry`, step 2 is `llmprism`'s tool loop calling back into that
@@ -280,6 +298,11 @@ which is also what actually ships as the desktop app's icon: `crates/otto-ui/ico
 (Windows-only - a separate multi-resolution 256/64/32/16 file `tauri-build` needs specifically to embed as the
 `.exe`'s Windows resource icon) are both generated straight from `docs/otto-logo-mark.png`. If you update the
 source mark, regenerate both rather than editing them by hand.
+
+`docs/ux.webp` is the visual reference the current UI was built against - a light, card-grid dashboard mockup
+with a personalized greeting header. The app's light theme, card patterns (dashboard panels, the model picker,
+the skills browser), and greeting hero are a direct translation of that reference into Otto's own brand colors
+(amber/navy/blue rather than the mockup's own palette) rather than a generic redesign.
 
 ## CI
 
@@ -300,9 +323,10 @@ without it - "required for generating a Windows Resource file"), which is a sepa
 `icon.png` `generate_context!()` needs on every platform; see the Branding section above for where both come
 from now.
 
-`cargo test --workspace` passes too - including real (not just compiled) coverage of `SqliteHistory`: a
-round-trip test (record two entries, list them back newest-first) and a limit test, both against a temp on-disk
-database, in `crates/otto-core/src/history.rs`.
+`cargo test --workspace` passes too - including real (not just compiled) coverage of `SqliteStore` in
+`crates/otto-core/src/store.rs`: recording and listing commands newest-first, respecting the `limit`, mixing
+commands with growth-digest/schedule events in one feed, and a settings round-trip/overwrite - all against a
+temp on-disk database, not mocks.
 
 Known gaps, tracked rather than hidden: `otto-skill-deploy` and `otto-skill-calendar` are scaffolded but not
 wired up, the dashboard frontend is plain HTML/JS rather than the originally-requested Dioxus (see the Desktop

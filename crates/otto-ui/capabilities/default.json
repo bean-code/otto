@@ -9,7 +9,12 @@
     "allow-start-recording",
     "allow-stop-recording",
     "allow-speak",
-    "allow-list-history",
+    "allow-list-activities",
+    "allow-list-models",
+    "allow-get-model",
+    "allow-set-model",
+    "allow-list-skills",
+    "allow-get-greeting-name",
     "allow-get-credential-status",
     "allow-set-credential"
   ]
