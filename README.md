@@ -70,7 +70,7 @@ trait surface:
 |---|---|
 | `otto-core` | Orchestration: the `Skill` trait, `SkillRegistry` (dispatches tool calls by name, groups by skill for the Skills tab), `AgentLoop`, `CredentialStore` (OS keychain), `ActivityLog`/`SqliteStore` (local SQLite - queryable, not a flat log; also holds small persisted settings like the selected model), `ActiveWindow` (working-hours scheduling), `PROVIDER_CATALOG`/`MODEL_CATALOG`, the growth-digest job. |
 | `otto-skill-github` | **Fully working.** List open PRs, check CI/check-run status, open a PR from a branch. Built on [`octocrab`](https://docs.rs/octocrab). |
-| `otto-skill-deploy` | Scaffolded (compiles, tools defined) but not yet implemented - intended for triggering/monitoring GitHub Actions workflow runs. |
+| `otto-skill-deploy` | **Fully working.** Trigger a GitHub Actions workflow run and check the status of its latest run, via [`octocrab`](https://docs.rs/octocrab) - reuses the same GitHub token as `otto-skill-github`. |
 | `otto-skill-calendar` | Scaffolded, not yet implemented - intended for Google Calendar (picked over Outlook as the starting provider). |
 | `otto-skill-notify` | **Fully working.** Desktop notifications via [`notify-rust`](https://docs.rs/notify-rust). |
 | `otto-voice` | **Fully working.** Local, offline voice I/O: mic capture (`cpal`) + speech-to-text (`whisper.cpp` via `whisper-rs`) for prompts, OS-native text-to-speech (`tts`) for talk-back. Nothing audio-related ever leaves the machine. |
@@ -410,9 +410,7 @@ from now.
 commands with growth-digest/schedule events in one feed, and a settings round-trip/overwrite - all against a
 temp on-disk database, not mocks.
 
-Known gaps, tracked rather than hidden: `otto-skill-deploy` and `otto-skill-calendar` are scaffolded but not
-wired up, the dashboard frontend is plain HTML/JS rather than the originally-requested Dioxus (see the Desktop
-app section for why and how to swap it in), the growth digest only looks at open PRs on one repo, and the
-`otto-ui` desktop window itself isn't visually verified in this environment (no display server here - see the
-Desktop app section for what's in it; `cargo build`/`cargo test` both pass, but only a real screen confirms it
-looks and behaves as described). None of these are blocked on anything - they're the natural next slice of work.
+Known gaps, tracked rather than hidden: `otto-skill-calendar` is scaffolded but not wired up (it needs a real
+decision on auth - OAuth vs. a simpler read-only ICS feed - before it's worth building; see that crate's doc
+comment), and the growth digest only looks at open PRs on one repo. None of these are blocked on anything -
+they're the natural next slice of work.

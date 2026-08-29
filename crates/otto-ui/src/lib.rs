@@ -257,8 +257,8 @@ async fn build_runtime(credentials: Arc<dyn CredentialStore>) -> anyhow::Result<
     let default_repo = std::env::var("OTTO_DEFAULT_REPO").ok();
 
     let mut registry = SkillRegistry::new();
-    registry.register(Arc::new(GithubSkill::new(credentials.clone(), default_repo)));
-    registry.register(Arc::new(DeploySkill::new()));
+    registry.register(Arc::new(GithubSkill::new(credentials.clone(), default_repo.clone())));
+    registry.register(Arc::new(DeploySkill::new(credentials.clone(), default_repo)));
     registry.register(Arc::new(CalendarSkill::new()));
     registry.register(Arc::new(NotifySkill::new()));
 

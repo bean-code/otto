@@ -105,8 +105,8 @@ async fn main() -> anyhow::Result<()> {
     register_provider(&mut llm, provider_info.id, api_key);
 
     let mut registry = SkillRegistry::new();
-    registry.register(Arc::new(GithubSkill::new(credentials.clone(), cli.repo)));
-    registry.register(Arc::new(DeploySkill::new()));
+    registry.register(Arc::new(GithubSkill::new(credentials.clone(), cli.repo.clone())));
+    registry.register(Arc::new(DeploySkill::new(credentials.clone(), cli.repo)));
     registry.register(Arc::new(CalendarSkill::new()));
     registry.register(Arc::new(NotifySkill::new()));
 

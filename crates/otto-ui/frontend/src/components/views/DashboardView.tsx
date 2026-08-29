@@ -120,7 +120,9 @@ export function DashboardView({
               <Icon name="deploy" className="h-5 w-5" />
             </div>
             <h3 className="m-0 text-sm font-bold">Deployments</h3>
-            <p className="m-0 flex-1 text-[12.5px] leading-relaxed text-muted">Deploy monitoring isn't wired up yet.</p>
+            <p className="m-0 flex-1 text-[12.5px] leading-relaxed text-muted">
+              Ask &quot;check the deploy status of &lt;workflow&gt;&quot; below.
+            </p>
           </section>
           <section className="flex flex-col gap-2.5 rounded-2xl border border-border bg-surface p-4 shadow-card">
             <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-success-soft text-success">
