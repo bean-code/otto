@@ -1,10 +1,17 @@
 use std::sync::Arc;
 
 use llmprism::providers::anthropic::AnthropicProvider;
+use llmprism::providers::gemini::GeminiProvider;
+use llmprism::providers::ollama::OllamaProvider;
+use llmprism::providers::openai::OpenAiProvider;
+use llmprism::providers::openai_compatible::{
+    DeepSeekProvider, GroqProvider, MistralProvider, OpenRouterProvider, PerplexityProvider, XaiProvider, ZaiProvider,
+};
 use llmprism::Registry as LlmRegistry;
 use otto_core::{
-    ActiveWindow, ActivityEntry, ActivityKind, ActivityLog, AgentLoop, AgentTurn, CredentialStore, KeyringStore,
-    ModelInfo, SkillInfo, SkillRegistry, SqliteStore, DEFAULT_PERSONA, MODEL_CATALOG,
+    credential_key, ActiveWindow, ActivityEntry, ActivityKind, ActivityLog, AgentLoop, AgentTurn, CredentialStore,
+    KeyringStore, ModelInfo, ProviderInfo, SkillInfo, SkillRegistry, SqliteStore, DEFAULT_PERSONA, MODEL_CATALOG,
+    PROVIDER_CATALOG,
 };
 use otto_skill_calendar::CalendarSkill;
 use otto_skill_deploy::DeploySkill;
@@ -16,10 +23,11 @@ use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Emitter;
 use tokio::sync::RwLock;
 
+const DEFAULT_PROVIDER: &str = "anthropic";
 const DEFAULT_MODEL: &str = "claude-opus-5";
-const ANTHROPIC_KEY: &str = "anthropic-api-key";
 const GITHUB_KEY: &str = "github-token";
-const MODEL_SETTING_KEY: &str = "model";
+const MODEL_PROVIDER_SETTING_KEY: &str = "model_provider";
+const MODEL_ID_SETTING_KEY: &str = "model_id";
 
 /// The parts of Otto's runtime that depend on credentials, held behind a
 /// lock so a Settings save can swap in a freshly-built one without
@@ -32,11 +40,19 @@ struct SharedRuntime {
     llm: LlmRegistry,
 }
 
+/// Which provider + model is currently active. A model belongs to exactly
+/// one provider, so these travel together rather than as two independent
+/// settings that could drift out of sync.
+#[derive(Debug, Clone, Serialize)]
+struct SelectedModel {
+    provider: String,
+    model: String,
+}
+
 struct AppState {
     credentials: Arc<dyn CredentialStore>,
     runtime: RwLock<SharedRuntime>,
-    provider: String,
-    model: RwLock<String>,
+    selected: RwLock<SelectedModel>,
     persona: String,
     store: Arc<SqliteStore>,
     voice: Option<VoiceEngine>,
@@ -49,8 +65,8 @@ impl AppState {
     /// it going stale after a credential or model change.
     async fn agent(&self) -> AgentLoop {
         let rt = self.runtime.read().await;
-        let model = self.model.read().await.clone();
-        AgentLoop::new(rt.llm.clone(), self.provider.clone(), model, self.persona.clone(), rt.registry.clone(), self.store.clone())
+        let selected = self.selected.read().await.clone();
+        AgentLoop::new(rt.llm.clone(), selected.provider, selected.model, self.persona.clone(), rt.registry.clone(), self.store.clone())
     }
 
     async fn rebuild_runtime(&self) -> anyhow::Result<()> {
@@ -62,14 +78,18 @@ impl AppState {
 
 #[derive(Serialize)]
 struct CredentialStatus {
-    anthropic: bool,
-    github: bool,
+    key: String,
+    label: String,
+    configured: bool,
 }
 
 #[tauri::command]
 async fn run_command(state: tauri::State<'_, Arc<AppState>>, input: String) -> Result<AgentTurn, String> {
-    if state.credentials.get(ANTHROPIC_KEY).await.is_err() {
-        return Err("no Claude API key configured yet - open Settings and add one".to_string());
+    let selected = state.selected.read().await.clone();
+    if let Some(info) = otto_core::provider_info(&selected.provider) {
+        if info.needs_api_key && state.credentials.get(&credential_key(info.id)).await.is_err() {
+            return Err(format!("no {} API key configured yet - open Settings and add one", info.name));
+        }
     }
     state.agent().await.run(&input).await.map_err(|e| e.to_string())
 }
@@ -81,27 +101,44 @@ async fn list_activities(state: tauri::State<'_, Arc<AppState>>, limit: Option<u
     state.store.list_recent(limit.unwrap_or(100) as usize).await.map_err(|e| e.to_string())
 }
 
-/// The curated model picker's contents - a fixed catalog, not
-/// user-editable, so this needs no state.
+/// Every provider Otto knows how to talk to, for Settings and the Models
+/// tab's provider grouping.
+#[tauri::command]
+fn list_providers() -> Vec<ProviderInfo> {
+    PROVIDER_CATALOG.to_vec()
+}
+
+/// The curated model picker's contents - a starting point per provider, not
+/// exhaustive (see `otto_core::MODEL_CATALOG`'s own docs). The Models tab
+/// also accepts a free-typed model id for any provider, for exactly that
+/// reason.
 #[tauri::command]
 fn list_models() -> Vec<ModelInfo> {
     MODEL_CATALOG.to_vec()
 }
 
 #[tauri::command]
-async fn get_model(state: tauri::State<'_, Arc<AppState>>) -> Result<String, String> {
-    Ok(state.model.read().await.clone())
+async fn get_selected_model(state: tauri::State<'_, Arc<AppState>>) -> Result<SelectedModel, String> {
+    Ok(state.selected.read().await.clone())
 }
 
-/// Switches the active model immediately and persists the choice so it
-/// survives a restart.
+/// Switches the active provider+model immediately and persists the choice
+/// so it survives a restart. `model` isn't restricted to `MODEL_CATALOG` -
+/// any non-empty string is accepted, so a newly-released or self-hosted
+/// (Ollama) model works without an otto-core update.
 #[tauri::command]
-async fn set_model(state: tauri::State<'_, Arc<AppState>>, model: String) -> Result<(), String> {
-    if !MODEL_CATALOG.iter().any(|m| m.id == model) {
-        return Err(format!("unknown model '{model}'"));
+async fn set_selected_model(state: tauri::State<'_, Arc<AppState>>, provider: String, model: String) -> Result<(), String> {
+    if otto_core::provider_info(&provider).is_none() {
+        return Err(format!("unknown provider '{provider}'"));
     }
-    state.store.set_setting(MODEL_SETTING_KEY, &model).await.map_err(|e| e.to_string())?;
-    *state.model.write().await = model;
+    if model.trim().is_empty() {
+        return Err("model id can't be empty".to_string());
+    }
+    let model = model.trim().to_string();
+
+    state.store.set_setting(MODEL_PROVIDER_SETTING_KEY, &provider).await.map_err(|e| e.to_string())?;
+    state.store.set_setting(MODEL_ID_SETTING_KEY, &model).await.map_err(|e| e.to_string())?;
+    *state.selected.write().await = SelectedModel { provider, model };
     Ok(())
 }
 
@@ -121,20 +158,30 @@ fn get_greeting_name() -> Option<String> {
     std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok()
 }
 
-/// Whether each known credential is currently set - never the value itself.
+/// Whether each known credential (every API-key provider, plus GitHub) is
+/// currently set - never the value itself.
 #[tauri::command]
-async fn get_credential_status(state: tauri::State<'_, Arc<AppState>>) -> Result<CredentialStatus, String> {
-    Ok(CredentialStatus {
-        anthropic: state.credentials.get(ANTHROPIC_KEY).await.is_ok(),
-        github: state.credentials.get(GITHUB_KEY).await.is_ok(),
-    })
+async fn get_credential_status(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<CredentialStatus>, String> {
+    let mut out = Vec::with_capacity(PROVIDER_CATALOG.len() + 1);
+    for provider in PROVIDER_CATALOG.iter().filter(|p| p.needs_api_key) {
+        let key = credential_key(provider.id);
+        let configured = state.credentials.get(&key).await.is_ok();
+        out.push(CredentialStatus { key, label: provider.name.to_string(), configured });
+    }
+    out.push(CredentialStatus {
+        key: GITHUB_KEY.to_string(),
+        label: "GitHub".to_string(),
+        configured: state.credentials.get(GITHUB_KEY).await.is_ok(),
+    });
+    Ok(out)
 }
 
 /// Saves a credential to the OS keychain and rebuilds the runtime so it
 /// takes effect immediately, without restarting the app.
 #[tauri::command]
 async fn set_credential(state: tauri::State<'_, Arc<AppState>>, key: String, value: String) -> Result<(), String> {
-    if key != ANTHROPIC_KEY && key != GITHUB_KEY {
+    let is_known_provider_key = PROVIDER_CATALOG.iter().any(|p| p.needs_api_key && credential_key(p.id) == key);
+    if key != GITHUB_KEY && !is_known_provider_key {
         return Err(format!("unknown credential '{key}'"));
     }
     if value.trim().is_empty() {
@@ -166,13 +213,45 @@ async fn speak(state: tauri::State<'_, Arc<AppState>>, text: String) -> Result<(
     voice.speak(text).await.map_err(|e| e.to_string())
 }
 
+/// Registers the llmprism provider matching `id`, if Otto knows one -
+/// mechanical, one arm per entry in `otto_core::PROVIDER_CATALOG`. Adding a
+/// new provider here (plus its Cargo feature and a `PROVIDER_CATALOG` row)
+/// is the entire integration surface.
+fn register_provider(llm: &mut LlmRegistry, id: &str, api_key: String) {
+    match id {
+        "anthropic" => llm.register(id, AnthropicProvider::new(api_key)),
+        "openai" => llm.register(id, OpenAiProvider::new(api_key)),
+        "gemini" => llm.register(id, GeminiProvider::new(api_key)),
+        "groq" => llm.register(id, GroqProvider::new(api_key)),
+        "deepseek" => llm.register(id, DeepSeekProvider::new(api_key)),
+        "mistral" => llm.register(id, MistralProvider::new(api_key)),
+        "xai" => llm.register(id, XaiProvider::new(api_key)),
+        "openrouter" => llm.register(id, OpenRouterProvider::new(api_key)),
+        "perplexity" => llm.register(id, PerplexityProvider::new(api_key)),
+        "zai" => llm.register(id, ZaiProvider::new(api_key)),
+        "ollama" => llm.register(id, OllamaProvider::new()),
+        other => tracing::warn!("no llmprism provider wired up for '{other}' - update register_provider"),
+    }
+}
+
 async fn build_runtime(credentials: Arc<dyn CredentialStore>) -> anyhow::Result<SharedRuntime> {
     let mut llm = LlmRegistry::new();
-    // Missing key isn't fatal here: the provider simply isn't registered,
-    // so a command that needs it fails with a clear "not configured"
-    // message (see `run_command`) instead of the app refusing to start.
-    if let Ok(anthropic_key) = credentials.get(ANTHROPIC_KEY).await {
-        llm.register("anthropic", AnthropicProvider::new(anthropic_key));
+    for provider in PROVIDER_CATALOG {
+        if provider.needs_api_key {
+            // Missing key isn't fatal: the provider simply isn't
+            // registered, so selecting a model that needs it fails with a
+            // clear "not configured" message (see `run_command`) instead
+            // of the app refusing to start.
+            if let Ok(key) = credentials.get(&credential_key(provider.id)).await {
+                register_provider(&mut llm, provider.id, key);
+            }
+        } else {
+            // Ollama: a local server, not a hosted API key - always
+            // registered once compiled in, same as llmprism's own
+            // `Registry::from_env()` treats it. If nothing's listening on
+            // localhost, a request against it just fails at call time.
+            register_provider(&mut llm, provider.id, String::new());
+        }
     }
 
     let default_repo = std::env::var("OTTO_DEFAULT_REPO").ok();
@@ -192,11 +271,20 @@ async fn build_state() -> anyhow::Result<AppState> {
 
     let store = Arc::new(SqliteStore::open(SqliteStore::default_path()?)?);
 
-    // A model picked via Settings outlives the process it was picked in;
-    // OTTO_MODEL/the built-in default are only the first-run fallback.
-    let model = match store.get_setting(MODEL_SETTING_KEY).await? {
-        Some(saved) => saved,
-        None => std::env::var("OTTO_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string()),
+    // A model/provider picked via Settings outlives the process it was
+    // picked in; OTTO_MODEL/the built-in default are only the first-run
+    // fallback (and always assumed Anthropic, for back-compat with the
+    // single-provider OTTO_MODEL env var from before multi-provider
+    // support).
+    let selected = match (
+        store.get_setting(MODEL_PROVIDER_SETTING_KEY).await?,
+        store.get_setting(MODEL_ID_SETTING_KEY).await?,
+    ) {
+        (Some(provider), Some(model)) => SelectedModel { provider, model },
+        _ => SelectedModel {
+            provider: DEFAULT_PROVIDER.to_string(),
+            model: std::env::var("OTTO_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string()),
+        },
     };
     let persona = std::env::var("OTTO_PERSONA").unwrap_or_else(|_| DEFAULT_PERSONA.to_string());
 
@@ -217,8 +305,7 @@ async fn build_state() -> anyhow::Result<AppState> {
     Ok(AppState {
         credentials,
         runtime: RwLock::new(runtime),
-        provider: "anthropic".to_string(),
-        model: RwLock::new(model),
+        selected: RwLock::new(selected),
         persona,
         store,
         voice,
@@ -227,7 +314,7 @@ async fn build_state() -> anyhow::Result<AppState> {
 
 /// Spawns the background task that runs `run_growth_digest` on a repeating
 /// interval (`OTTO_GROWTH_INTERVAL_HOURS`, default 24h) for as long as the
-/// app is running. Reads `state.runtime`/`state.model` fresh every tick
+/// app is running. Reads `state.runtime`/`state.selected` fresh every tick
 /// (rather than capturing a snapshot once at startup) so a change made via
 /// Settings takes effect on the very next tick, not just after a restart.
 fn spawn_growth_digest(state: Arc<AppState>) {
@@ -241,8 +328,8 @@ fn spawn_growth_digest(state: Arc<AppState>) {
         loop {
             ticker.tick().await;
             let rt = state.runtime.read().await;
-            let model = state.model.read().await.clone();
-            if let Err(e) = otto_core::run_growth_digest(&rt.registry, &rt.llm, &state.provider, &model, &*state.store).await
+            let selected = state.selected.read().await.clone();
+            if let Err(e) = otto_core::run_growth_digest(&rt.registry, &rt.llm, &selected.provider, &selected.model, &*state.store).await
             {
                 tracing::debug!("growth digest skipped this cycle: {e}");
             }
@@ -379,9 +466,10 @@ pub fn run() {
             stop_recording,
             speak,
             list_activities,
+            list_providers,
             list_models,
-            get_model,
-            set_model,
+            get_selected_model,
+            set_selected_model,
             list_skills,
             get_greeting_name,
             get_credential_status,
