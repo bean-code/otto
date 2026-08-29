@@ -16,6 +16,8 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/bean-code/otto"
+authors = ["bean-code"]
+description = "Otto - autopilot for your engineering workflow"
 
 [workspace.dependencies]
 otto-core = { path = "crates/otto-core" }

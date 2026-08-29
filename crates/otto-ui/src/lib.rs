@@ -12,7 +12,7 @@ use otto_skill_github::GithubSkill;
 use otto_skill_notify::NotifySkill;
 use otto_voice::VoiceEngine;
 use serde::Serialize;
-use tauri::menu::{MenuBuilder, SubmenuBuilder};
+use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Emitter;
 use tokio::sync::RwLock;
 
@@ -309,14 +309,28 @@ pub fn run() {
 
             spawn_growth_digest(state.clone());
 
-            // Native app menu, standard on every desktop platform: a File
-            // menu with Settings + Quit, and the usual Edit menu (so
-            // cut/copy/paste and their OS keyboard shortcuts work in text
-            // fields) - "Settings..." emits an event the frontend listens
-            // for to open its Settings panel, rather than a second native
-            // window.
+            // Native app menu, standard on every desktop platform: an "Otto"
+            // menu with About, Settings, and Quit, plus the usual Edit menu
+            // (so cut/copy/paste and their OS keyboard shortcuts work in
+            // text fields). "Settings..." emits an event the frontend
+            // listens for to open its Settings panel, rather than a second
+            // native window. About's copyright/license/website come from
+            // tauri.conf.json's `bundle` config and its name/version/authors
+            // from Cargo.toml (via `package_info()`) - one source of truth,
+            // not duplicated into Rust source.
             let handle = app.handle();
+            let about = AboutMetadataBuilder::new()
+                .name(Some(app.package_info().name.clone()))
+                .version(Some(app.package_info().version.to_string()))
+                .authors(Some(vec![app.package_info().authors.to_string()]))
+                .copyright(app.config().bundle.copyright.clone())
+                .license(app.config().bundle.license.clone())
+                .website(app.config().bundle.homepage.clone())
+                .icon(app.default_window_icon().cloned())
+                .build();
             let file_menu = SubmenuBuilder::new(handle, "Otto")
+                .about(Some(about))
+                .separator()
                 .text("settings", "Settings...")
                 .separator()
                 .quit()

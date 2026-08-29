@@ -25,6 +25,21 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/icon.ico"]
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "publisher": "bean-code",
+    "homepage": "https://github.com/bean-code/otto",
+    "copyright": "Copyright © 2026 bean-code",
+    "license": "MIT",
+    "licenseFile": "../../LICENSE",
+    "category": "DeveloperTool",
+    "shortDescription": "Autopilot for your engineering workflow",
+    "longDescription": "Otto is a personal automation assistant for engineers: a natural-language command bar that dispatches to typed integrations (GitHub PRs and CI today) via the Claude API, with local voice input/output, a working-hours schedule, and a queryable activity history.",
+    "windows": {
+      "nsis": {
+        "installMode": "both",
+        "languages": ["English", "French", "German", "Spanish"],
+        "displayLanguageSelector": true
+      }
+    }
   }
 }
