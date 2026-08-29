@@ -12,6 +12,15 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # otto-voice's whisper-rs-sys vendors ggml, which uses std::filesystem
+  # (introduced in macOS 10.15) - without an explicit deployment target,
+  # clang defaults to one older than that, and Xcode 26's libc++
+  # availability checks correctly hard-error on it. We only ever build
+  # aarch64-apple-darwin here (no universal/x86_64 target), and no Mac has
+  # ever run Apple Silicon below 11.0, so this costs zero real
+  # compatibility. Harmless on Linux/Windows - clang/cc there just ignore
+  # an env var they don't recognize.
+  MACOSX_DEPLOYMENT_TARGET: "11.0"
 
 jobs:
   build-test-run:
