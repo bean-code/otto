@@ -1,6 +1,7 @@
 {
   "name": "otto-ui-tauri",
   "private": true,
+  "packageManager": "pnpm@11.10.0",
   "description": "Workspace root for otto-ui's Tauri CLI - tauri.conf.json lives here, alongside src/ and Cargo.toml, with the frontend nested under frontend/. The tauri CLI must run with this directory as its cwd (it looks for tauri.conf.json in the current directory or below, not above), which is why @tauri-apps/cli lives here rather than in frontend/'s own package.json.",
   "scripts": {
     "dev": "tauri dev",
