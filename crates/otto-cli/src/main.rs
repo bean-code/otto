@@ -14,7 +14,7 @@ use otto_core::{
     credential_key, AgentLoop, CredentialStore, KeyringStore, SkillRegistry, SqliteStore,
     DEFAULT_PERSONA,
 };
-use otto_skill_calendar::CalendarSkill;
+use otto_skill_calendar::{connect_google_calendar, CalendarSkill};
 use otto_skill_deploy::DeploySkill;
 use otto_skill_github::GithubSkill;
 use otto_skill_notify::NotifySkill;
@@ -28,9 +28,18 @@ const MODEL_ID_SETTING_KEY: &str = "model_id";
 #[derive(Parser)]
 #[command(name = "otto", version, about)]
 struct Cli {
-    /// Natural-language command, e.g. "show me my open PRs".
-    #[arg(trailing_var_arg = true, required = true)]
+    /// Natural-language command, e.g. "show me my open PRs". Required unless
+    /// --connect-google-calendar is given.
+    #[arg(trailing_var_arg = true)]
     input: Vec<String>,
+
+    /// Run the Google Calendar OAuth2 connect flow (opens the consent
+    /// screen in your default browser, waits for it) and exit - the same
+    /// flow otto-ui's Settings "Connect" button runs, for when you'd rather
+    /// not open the desktop app just for this one-time step. Requires
+    /// google-calendar-client-id to already be set (see the README).
+    #[arg(long)]
+    connect_google_calendar: bool,
 
     /// Default "owner/name" repo for GitHub commands that don't name one.
     #[arg(long, env = "OTTO_DEFAULT_REPO")]
@@ -83,9 +92,20 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let input = cli.input.join(" ");
 
     let credentials: Arc<dyn CredentialStore> = Arc::new(KeyringStore::new());
+
+    if cli.connect_google_calendar {
+        connect_google_calendar(&*credentials).await?;
+        println!("Google Calendar connected.");
+        return Ok(());
+    }
+
+    if cli.input.is_empty() {
+        anyhow::bail!("no command given - pass one, e.g. `otto \"show me my open PRs\"`, or see `otto --help`");
+    }
+    let input = cli.input.join(" ");
+
     let store = Arc::new(SqliteStore::open(SqliteStore::default_path()?)?);
 
     // Precedence: --provider/--model flag > OTTO_PROVIDER/OTTO_MODEL env >

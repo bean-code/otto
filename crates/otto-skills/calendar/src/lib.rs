@@ -368,7 +368,11 @@ pub async fn connect_google_calendar(credentials: &dyn CredentialStore) -> CoreR
         .await
         .map_err(|_| CoreError::SkillFailed {
             skill: "calendar".into(),
-            message: "add a Google Calendar Client ID in Settings first".into(),
+            message: format!(
+                "no Google Calendar Client ID configured yet - set it first, e.g. via otto-ui's Settings, \
+                 or export OTTO_{}",
+                CLIENT_ID_KEY.to_uppercase().replace('-', "_")
+            ),
         })?;
 
     let listener = TcpListener::bind("127.0.0.1:0")

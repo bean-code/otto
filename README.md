@@ -161,12 +161,14 @@ a shared one safely, and this way nothing about your calendar ever goes through 
 2. Under **APIs & Services > Credentials**, create an **OAuth client ID** of type **Desktop app** (not "Web
    application" - the Desktop type is what lets the flow below skip a client secret entirely; see
    `otto-skill-calendar`'s doc comment for why).
-3. Copy the **Client ID** it gives you and paste it into Settings under "Google Calendar Client ID", same as any
-   other credential.
-4. Click **Connect** on the "Google Calendar" row right below it. This opens the Google consent screen in your
-   default browser (a local, OS-assigned loopback port catches the redirect - nothing is exposed to the network);
-   approve it, and the tab tells you to close it. Otto now has a refresh token in the keychain and refreshes its
-   access token automatically as needed - you don't reconnect again unless you revoke access.
+3. Copy the **Client ID** it gives you and paste it into Settings under "Google Calendar Client ID" (or
+   `export OTTO_GOOGLE_CALENDAR_CLIENT_ID=...` if you're `otto-cli`-only and skipping `otto-ui` entirely).
+4. Connect: click **Connect** on the "Google Calendar" row right below it in `otto-ui`'s Settings, or run
+   `otto --connect-google-calendar` from `otto-cli` - both run the identical flow (`otto_skill_calendar::connect_google_calendar`).
+   It opens the Google consent screen in your default browser (a local, OS-assigned loopback port catches the
+   redirect - nothing is exposed to the network); approve it, and the tab tells you to close it. Otto now has a
+   refresh token in the keychain and refreshes its access token automatically as needed - you don't reconnect
+   again unless you revoke access.
 
 Read-only (`calendar.events.readonly`) - Otto can list and read your events, never create/edit/delete them.
 
@@ -461,7 +463,6 @@ from now.
 commands with growth-digest/schedule events in one feed, and a settings round-trip/overwrite - all against a
 temp on-disk database, not mocks.
 
-Known gaps, tracked rather than hidden: the growth digest only looks at open PRs on one repo, and
-`otto-skill-calendar`'s connect flow is only reachable from `otto-ui`'s Settings (no `otto-cli`-native OAuth
-flow) - `otto-cli` picks up the connection automatically afterward since it's the same shared keychain, but
-can't initiate it itself. Neither is blocked on anything - they're the natural next slice of work.
+Known gaps, tracked rather than hidden: the growth digest only looks at open PRs, not a fuller activity history
+(commits, merged/closed PRs) even across the repos `OTTO_GROWTH_REPOS` names. Not blocked on anything - it's the
+natural next slice of work.
