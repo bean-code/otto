@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{CoreError, CoreResult};
-use crate::history::HistoryStore;
 use crate::registry::SkillRegistry;
+use crate::store::ActivityLog;
 
 const SYSTEM_PROMPT: &str = "You are Otto, a personal automation assistant that runs the user's \
 professional life: coding workflows, GitHub pull requests, deployments, and meeting/calendar \
@@ -106,7 +106,7 @@ pub struct AgentLoop {
     model: String,
     persona: String,
     registry: Arc<SkillRegistry>,
-    history: Arc<dyn HistoryStore>,
+    activity_log: Arc<dyn ActivityLog>,
 }
 
 impl AgentLoop {
@@ -119,7 +119,7 @@ impl AgentLoop {
         model: impl Into<String>,
         persona: impl Into<String>,
         registry: Arc<SkillRegistry>,
-        history: Arc<dyn HistoryStore>,
+        activity_log: Arc<dyn ActivityLog>,
     ) -> Self {
         Self {
             llm,
@@ -127,7 +127,7 @@ impl AgentLoop {
             model: model.into(),
             persona: persona.into(),
             registry,
-            history,
+            activity_log,
         }
     }
 
@@ -174,7 +174,7 @@ impl AgentLoop {
             reply: response.text.unwrap_or_default().trim().to_string(),
             steps: recorded_steps,
         };
-        self.history.record(input, &turn).await?;
+        self.activity_log.record_command(input, &turn).await?;
         Ok(turn)
     }
 }

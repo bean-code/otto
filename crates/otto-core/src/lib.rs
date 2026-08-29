@@ -2,19 +2,21 @@ pub mod agent;
 pub mod credentials;
 pub mod error;
 pub mod growth;
-pub mod history;
+pub mod models;
 pub mod registry;
 pub mod schedule;
 pub mod skill;
+pub mod store;
 
 pub use agent::{AgentLoop, AgentStep, AgentTurn, DEFAULT_PERSONA};
 pub use credentials::{CredentialStore, KeyringStore};
 pub use error::{CoreError, CoreResult};
 pub use growth::run_growth_digest;
-pub use history::{HistoryEntry, HistoryStore, SqliteHistory};
-pub use registry::SkillRegistry;
+pub use models::{ModelInfo, MODEL_CATALOG};
+pub use registry::{SkillInfo, SkillRegistry};
 pub use schedule::ActiveWindow;
 pub use skill::{Skill, SkillOutcome, ToolSpec};
+pub use store::{ActivityEntry, ActivityKind, ActivityLog, SqliteStore};
 
 /// The LLM reasoning layer is `llmprism::Registry` directly: register
 /// whichever provider(s) you want (Anthropic by default - see

@@ -1,10 +1,19 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::{CoreError, CoreResult};
 use crate::skill::{Skill, SkillOutcome, ToolSpec};
+
+/// One registered skill and the tools it owns - for browsing what Otto can
+/// currently do (see `SkillRegistry::skills`), not for dispatch.
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillInfo {
+    pub id: &'static str,
+    pub tools: Vec<ToolSpec>,
+}
 
 /// Maps tool names to the skill that implements them, and dispatches calls.
 #[derive(Default)]
@@ -44,6 +53,23 @@ impl SkillRegistry {
             }
         }
         specs
+    }
+
+    /// Every registered skill, grouped, with the tools each one owns - for
+    /// a "what can Otto do" browser in the UI. Grouped by `Skill::id()`
+    /// since a skill can own several tools but only ever appears once here.
+    pub fn skills(&self) -> Vec<SkillInfo> {
+        let mut by_id: BTreeMap<&'static str, Vec<ToolSpec>> = BTreeMap::new();
+        let mut seen_tools = HashSet::new();
+        for skill in self.owners.values() {
+            let tools = by_id.entry(skill.id()).or_default();
+            for tool in skill.tools() {
+                if seen_tools.insert(tool.name.clone()) {
+                    tools.push(tool);
+                }
+            }
+        }
+        by_id.into_iter().map(|(id, tools)| SkillInfo { id, tools }).collect()
     }
 
     pub async fn dispatch(&self, tool_name: &str, input: Value) -> CoreResult<SkillOutcome> {

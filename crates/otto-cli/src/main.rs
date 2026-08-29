@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use otto_core::{AgentLoop, CredentialStore, KeyringStore, SkillRegistry, SqliteHistory, DEFAULT_PERSONA};
+use otto_core::{AgentLoop, CredentialStore, KeyringStore, SkillRegistry, SqliteStore, DEFAULT_PERSONA};
 use otto_skill_calendar::CalendarSkill;
 use otto_skill_deploy::DeploySkill;
 use otto_skill_github::GithubSkill;
@@ -53,8 +53,8 @@ async fn main() -> anyhow::Result<()> {
     registry.register(Arc::new(NotifySkill::new()));
 
     let persona = std::env::var("OTTO_PERSONA").unwrap_or_else(|_| DEFAULT_PERSONA.to_string());
-    let history = Arc::new(SqliteHistory::open(SqliteHistory::default_path()?)?);
-    let agent = AgentLoop::new(llm, "anthropic", cli.model, persona, Arc::new(registry), history);
+    let store = Arc::new(SqliteStore::open(SqliteStore::default_path()?)?);
+    let agent = AgentLoop::new(llm, "anthropic", cli.model, persona, Arc::new(registry), store);
 
     let turn = agent.run(&input).await?;
 
