@@ -121,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
     for step in &turn.steps {
         println!("\n[{}] {}", step.tool_name, step.summary);
     }
+    eprintln!("\n(via {} / {})", turn.provider, turn.model);
 
     Ok(())
 }

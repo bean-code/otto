@@ -50,6 +50,8 @@ pub struct AgentStep {
 pub struct AgentTurn {
     pub reply: String,
     pub steps: Vec<AgentStep>,
+    pub provider: String,
+    pub model: String,
 }
 
 /// Adapts one tool exposed by a `Skill` to llmprism's `Tool` trait so the
@@ -173,6 +175,8 @@ impl AgentLoop {
         let turn = AgentTurn {
             reply: response.text.unwrap_or_default().trim().to_string(),
             steps: recorded_steps,
+            provider: self.provider.clone(),
+            model: self.model.clone(),
         };
         self.activity_log.record_command(input, &turn).await?;
         Ok(turn)

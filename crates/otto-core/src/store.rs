@@ -38,6 +38,12 @@ pub struct ActivityEntry {
     pub detail: String,
     /// Only populated for `Command` activities - empty otherwise.
     pub steps: Vec<AgentStep>,
+    /// The llmprism provider/model that actually served this activity - only
+    /// populated for `Command` activities, empty otherwise. Recorded per-turn
+    /// (not read from current settings) so the feed stays accurate even
+    /// after the user switches models later.
+    pub provider: String,
+    pub model: String,
 }
 
 /// Every activity Otto has recorded - written as things happen and readable
@@ -85,6 +91,20 @@ impl SqliteStore {
              );",
         )
         .map_err(|e| CoreError::History(e.to_string()))?;
+
+        // `provider`/`model` were added after the table already shipped -
+        // existing databases need an ALTER, since `CREATE TABLE IF NOT
+        // EXISTS` only applies to brand-new files.
+        let has_provider_column = conn
+            .prepare("SELECT provider FROM activities LIMIT 1")
+            .is_ok();
+        if !has_provider_column {
+            conn.execute_batch(
+                "ALTER TABLE activities ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE activities ADD COLUMN model TEXT NOT NULL DEFAULT '';",
+            )
+            .map_err(|e| CoreError::History(e.to_string()))?;
+        }
 
         Ok(Self { conn: Arc::new(Mutex::new(conn)) })
     }
@@ -155,11 +175,11 @@ fn kind_from_str(s: &str) -> CoreResult<ActivityKind> {
 impl ActivityLog for SqliteStore {
     async fn record_command(&self, input: &str, turn: &AgentTurn) -> CoreResult<()> {
         let steps_json = serde_json::to_string(&turn.steps).map_err(|e| CoreError::History(e.to_string()))?;
-        self.insert("command", input, &turn.reply, &steps_json).await
+        self.insert("command", input, &turn.reply, &steps_json, &turn.provider, &turn.model).await
     }
 
     async fn record_event(&self, kind: ActivityKind, title: &str, detail: &str) -> CoreResult<()> {
-        self.insert(kind_to_str(kind), title, detail, "[]").await
+        self.insert(kind_to_str(kind), title, detail, "[]", "", "").await
     }
 
     async fn list_recent(&self, limit: usize) -> CoreResult<Vec<ActivityEntry>> {
@@ -168,7 +188,10 @@ impl ActivityLog for SqliteStore {
         tokio::task::spawn_blocking(move || -> CoreResult<Vec<ActivityEntry>> {
             let conn = conn.lock().expect("store db mutex poisoned");
             let mut stmt = conn
-                .prepare("SELECT id, timestamp, kind, title, detail, steps_json FROM activities ORDER BY id DESC LIMIT ?1")
+                .prepare(
+                    "SELECT id, timestamp, kind, title, detail, steps_json, provider, model \
+                     FROM activities ORDER BY id DESC LIMIT ?1",
+                )
                 .map_err(|e| CoreError::History(e.to_string()))?;
 
             let rows = stmt
@@ -179,20 +202,23 @@ impl ActivityLog for SqliteStore {
                     let title: String = row.get(3)?;
                     let detail: String = row.get(4)?;
                     let steps_json: String = row.get(5)?;
-                    Ok((id, timestamp, kind, title, detail, steps_json))
+                    let provider: String = row.get(6)?;
+                    let model: String = row.get(7)?;
+                    Ok((id, timestamp, kind, title, detail, steps_json, provider, model))
                 })
                 .map_err(|e| CoreError::History(e.to_string()))?;
 
             let mut entries = Vec::new();
             for row in rows {
-                let (id, timestamp, kind, title, detail, steps_json) = row.map_err(|e| CoreError::History(e.to_string()))?;
+                let (id, timestamp, kind, title, detail, steps_json, provider, model) =
+                    row.map_err(|e| CoreError::History(e.to_string()))?;
                 let timestamp = DateTime::parse_from_rfc3339(&timestamp)
                     .map_err(|e| CoreError::History(e.to_string()))?
                     .with_timezone(&Utc);
                 let kind = kind_from_str(&kind)?;
                 let steps: Vec<AgentStep> =
                     serde_json::from_str(&steps_json).map_err(|e| CoreError::History(e.to_string()))?;
-                entries.push(ActivityEntry { id, timestamp, kind, title, detail, steps });
+                entries.push(ActivityEntry { id, timestamp, kind, title, detail, steps, provider, model });
             }
             Ok(entries)
         })
@@ -202,19 +228,31 @@ impl ActivityLog for SqliteStore {
 }
 
 impl SqliteStore {
-    async fn insert(&self, kind: &str, title: &str, detail: &str, steps_json: &str) -> CoreResult<()> {
+    #[allow(clippy::too_many_arguments)]
+    async fn insert(
+        &self,
+        kind: &str,
+        title: &str,
+        detail: &str,
+        steps_json: &str,
+        provider: &str,
+        model: &str,
+    ) -> CoreResult<()> {
         let conn = self.conn.clone();
         let kind = kind.to_string();
         let title = title.to_string();
         let detail = detail.to_string();
         let steps_json = steps_json.to_string();
+        let provider = provider.to_string();
+        let model = model.to_string();
         let timestamp = Utc::now().to_rfc3339();
 
         tokio::task::spawn_blocking(move || -> CoreResult<()> {
             let conn = conn.lock().expect("store db mutex poisoned");
             conn.execute(
-                "INSERT INTO activities (timestamp, kind, title, detail, steps_json) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![timestamp, kind, title, detail, steps_json],
+                "INSERT INTO activities (timestamp, kind, title, detail, steps_json, provider, model) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![timestamp, kind, title, detail, steps_json, provider, model],
             )
             .map_err(|e| CoreError::History(e.to_string()))?;
             Ok(())
@@ -240,6 +278,8 @@ mod tests {
                 summary: "2 open PRs".to_string(),
                 data: json!({ "repo": "acme/widgets" }),
             }],
+            provider: "anthropic".to_string(),
+            model: "claude-opus-5".to_string(),
         }
     }
 
@@ -263,6 +303,8 @@ mod tests {
         assert_eq!(entries[1].title, "first command");
         assert_eq!(entries[0].steps.len(), 1);
         assert_eq!(entries[0].steps[0].tool_name, "github_list_open_prs");
+        assert_eq!(entries[0].provider, "anthropic");
+        assert_eq!(entries[0].model, "claude-opus-5");
     }
 
     #[tokio::test]
@@ -306,6 +348,41 @@ mod tests {
 
         store.set_setting("model", "claude-sonnet-5").await.unwrap();
         assert_eq!(store.get_setting("model").await.unwrap(), Some("claude-sonnet-5".to_string()));
+    }
+
+    #[tokio::test]
+    async fn opens_and_migrates_a_pre_provider_column_database() {
+        let dir = std::env::temp_dir().join(format!("otto-store-test-{}", uuid_like()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("otto.sqlite3");
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE activities (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp  TEXT NOT NULL,
+                    kind       TEXT NOT NULL,
+                    title      TEXT NOT NULL,
+                    detail     TEXT NOT NULL,
+                    steps_json TEXT NOT NULL
+                 );
+                 INSERT INTO activities (timestamp, kind, title, detail, steps_json)
+                 VALUES ('2026-01-01T00:00:00Z', 'command', 'old command', 'old reply', '[]');",
+            )
+            .unwrap();
+        }
+
+        let store = SqliteStore::open(path).unwrap();
+        let entries = store.list_recent(10).await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].title, "old command");
+        assert_eq!(entries[0].provider, "");
+        assert_eq!(entries[0].model, "");
+
+        store.record_command("new command", &turn("new reply")).await.unwrap();
+        let entries = store.list_recent(10).await.unwrap();
+        assert_eq!(entries[0].provider, "anthropic");
     }
 
     fn uuid_like() -> String {
