@@ -16,6 +16,26 @@ function greetingFor(name: string | null) {
   return `Good ${part}${name ? `, ${capitalize(name)}` : ""}`;
 }
 
+const SUGGESTIONS = ["Show my open PRs", "Check CI status", "Open a PR from a branch"];
+
+function Orb() {
+  return (
+    <div className="relative flex h-20 w-20 items-center justify-center">
+      <div
+        className="absolute inset-0 rounded-full opacity-70 blur-xl"
+        style={{ background: "radial-gradient(circle at 30% 30%, #eaf1ff, #2f6fed 45%, #996318 85%)" }}
+      />
+      <div
+        className="relative h-16 w-16 animate-orb-breathe rounded-full"
+        style={{
+          background: "radial-gradient(circle at 35% 30%, #ffffff, #cfe0ff 30%, #7fa8f5 60%, #3a5fc9 100%)",
+          boxShadow: "0 0 40px rgba(47,111,237,0.35), inset 0 0 16px rgba(255,255,255,0.6)",
+        }}
+      />
+    </div>
+  );
+}
+
 function PullRequestsCard({ data }: { data: GithubPrStepData | null }) {
   const prs = data?.pull_requests ?? [];
   return (
@@ -72,30 +92,23 @@ export function DashboardView({
       .catch((err) => console.warn("failed to load greeting name:", err));
   }, []);
 
+  const heroContent = (
+    <div className="flex flex-col items-center gap-4 text-center">
+      <Orb />
+      <div>
+        <h1 className="m-0 text-[26px] font-semibold tracking-tight">What can Otto do for you?</h1>
+        <p className="mt-1.5 max-w-[440px] text-sm leading-relaxed text-muted">
+          {greetingFor(greetingName)} - ask Otto to check your PRs, review CI, or open one from a branch, or hold the
+          mic and just say it.
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <section className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", !active && "hidden")}>
-      <div className="flex-1 overflow-auto">
-        <div className="relative overflow-hidden border-b border-border bg-surface px-7 pt-8 pb-5">
-          <svg
-            className="pointer-events-none absolute -top-2 right-0 h-[140px] w-[340px] opacity-90"
-            viewBox="0 0 340 140"
-            fill="none"
-          >
-            <path d="M40 130 C 90 90, 120 40, 190 20" stroke="#2f6fed" strokeWidth={5} strokeLinecap="round" opacity={0.55} />
-            <path d="M70 135 C 130 110, 160 60, 250 15" stroke="#c9821f" strokeWidth={5} strokeLinecap="round" opacity={0.5} />
-            <path
-              d="M110 138 C 170 125, 220 90, 320 45"
-              stroke="#1f9d63"
-              strokeWidth={5}
-              strokeLinecap="round"
-              opacity={0.45}
-            />
-          </svg>
-          <h1 className="m-0 text-[26px] font-semibold tracking-tight">{greetingFor(greetingName)}</h1>
-          <p className="mt-1.5 max-w-[520px] text-sm leading-relaxed text-muted">
-            Ask Otto to check your PRs, review CI, or open one from a branch - or hold the mic and just say it.
-          </p>
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <CommandBar providerName={providerName} onPrData={setPrData} heroContent={heroContent} suggestions={SUGGESTIONS} />
 
         <div className="flex items-baseline justify-between px-6 pt-5">
           <h2 className="m-0 text-[13px] font-semibold uppercase tracking-wide text-muted">Overview</h2>
@@ -118,8 +131,6 @@ export function DashboardView({
           </section>
         </main>
       </div>
-
-      <CommandBar providerName={providerName} onPrData={setPrData} />
     </section>
   );
 }

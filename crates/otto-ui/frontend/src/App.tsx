@@ -6,9 +6,10 @@ import { ActivitiesView } from "@/components/views/ActivitiesView";
 import { DashboardView } from "@/components/views/DashboardView";
 import { ModelsView } from "@/components/views/ModelsView";
 import { SkillsView } from "@/components/views/SkillsView";
+import { Sidebar } from "@/components/Sidebar";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { Toaster } from "@/components/ui/sonner";
-import { Toolbar } from "@/components/Toolbar";
+import { TopBar } from "@/components/TopBar";
 import { useOttoStatus } from "@/hooks/useOttoStatus";
 import type { Tab } from "@/lib/tabs";
 
@@ -54,26 +55,31 @@ export default function App() {
     return { ok: !!github?.configured, label: "GitHub" };
   }, [status.credentialStatus]);
 
+  const modelLabel = status.selected ? `${providerName(status.selected.provider)} · ${status.selected.model}` : "Choose a model";
+
   return (
-    <div className="flex h-screen min-h-0 flex-1 flex-col bg-bg text-ink antialiased">
-      <Toolbar
+    <div className="flex h-screen min-h-0 flex-1 bg-bg text-ink antialiased">
+      <Sidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onSettingsClick={() => setSettingsOpen(true)}
-        modelPill={modelPill}
-        githubPill={githubPill}
+        modelLabel={modelLabel}
       />
 
-      {/* Dashboard stays mounted across tab switches so the transcript and PR
-          panel survive navigating away and back - the other tabs have no
-          state worth preserving and simply refetch on every mount, matching
-          the original "refetch every switch" behavior for free. */}
-      <DashboardView active={activeTab === "dashboard"} providerName={providerName} />
-      {activeTab === "activities" && <ActivitiesView providerName={providerName} />}
-      {activeTab === "models" && (
-        <ModelsView status={status} refreshStatus={refresh} onOpenSettings={() => setSettingsOpen(true)} />
-      )}
-      {activeTab === "skills" && <SkillsView />}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <TopBar activeTab={activeTab} modelPill={modelPill} githubPill={githubPill} />
+
+        {/* Dashboard stays mounted across tab switches so the transcript and
+            PR panel survive navigating away and back - the other tabs have
+            no state worth preserving and simply refetch on every mount,
+            matching the original "refetch every switch" behavior for free. */}
+        <DashboardView active={activeTab === "dashboard"} providerName={providerName} />
+        {activeTab === "activities" && <ActivitiesView providerName={providerName} />}
+        {activeTab === "models" && (
+          <ModelsView status={status} refreshStatus={refresh} onOpenSettings={() => setSettingsOpen(true)} />
+        )}
+        {activeTab === "skills" && <SkillsView />}
+      </div>
 
       <SettingsDialog
         open={settingsOpen}

@@ -46,21 +46,38 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 
-  /* Otto-specific tokens, unchanged from the original design. */
+  /* Otto-specific tokens. Colors below are darkened from the original
+     hand-authored design where measured WCAG contrast against their own
+     paired `-soft` background fell short of 4.5:1 for text use (verified via
+     the relative-luminance formula, not eyeballed). `accent`/`danger`/`muted`
+     also needed to become their own literals here rather than inherit from
+     shadcn's semantic slots above: those slots mean something different
+     ("subtle hover surface" for `muted`/`accent`) than the vivid text colors
+     Otto's own components use bare `text-muted`/`text-accent` for - the
+     shadcn-facing meaning stays put in `:root` for `bg-muted`-style hover
+     surfaces (redirected to `--secondary`, the same pale value, in
+     `button.tsx`/`dialog.tsx` so nothing there changed visually), while
+     these overrides give Otto's own text usage its own correct value.
+     `danger` was never defined as a token at all before this fix, silently
+     no-op-ing every `text-danger`/`bg-danger` class in the app (the
+     recording-state mic button, transcript error text). */
   --color-bg: #f6f7f9;
   --color-surface: #ffffff;
   --color-surface-sunken: #f1f3f6;
   --color-border-strong: #d7dbe3;
   --color-ink: #1b1f27;
+  --color-muted: #686f7c;
   --color-muted-2: #9aa1ac;
 
+  --color-accent: #996318;
   --color-accent-soft: #fdf2e2;
-  --color-accent-2: #2f6fed;
+  --color-accent-2: #1f64ec;
   --color-accent-2-soft: #eaf1ff;
   --color-navy: #212840;
   --color-navy-soft: #eaecf3;
+  --color-danger: #cf2a47;
   --color-danger-soft: #fdecef;
-  --color-success: #1f9d63;
+  --color-success: #197f50;
   --color-success-soft: #e8f8f0;
 
   --shadow-card: 0 1px 2px rgba(20, 24, 33, 0.05), 0 1px 1px rgba(20, 24, 33, 0.03);
@@ -75,23 +92,23 @@
   --card-foreground: #1b1f27;
   --popover: #ffffff;
   --popover-foreground: #1b1f27;
-  --primary: #c9821f;
-  --primary-foreground: #fdf2e2;
+  --primary: #996318;
+  --primary-foreground: #ffffff;
   --secondary: #f1f3f6;
   --secondary-foreground: #1b1f27;
   --muted: #f1f3f6;
   --muted-foreground: #6b7280;
   --accent: #fdf2e2;
-  --accent-foreground: #c9821f;
-  --destructive: #d9455f;
+  --accent-foreground: #996318;
+  --destructive: #cf2a47;
   --border: #e5e8ee;
   --input: #e5e8ee;
-  --ring: #2f6fed;
+  --ring: #1f64ec;
   --radius: 0.625rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #1b1f27;
-  --sidebar-primary: #c9821f;
-  --sidebar-primary-foreground: #fdf2e2;
+  --sidebar-primary: #996318;
+  --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #f1f3f6;
   --sidebar-accent-foreground: #1b1f27;
   --sidebar-border: #e5e8ee;
@@ -123,6 +140,9 @@
 @utility animate-fade-in {
   animation: fade-in 0.15s ease;
 }
+@utility animate-orb-breathe {
+  animation: orb-breathe 4s ease-in-out infinite;
+}
 
 @keyframes pulse-ring {
   0% { box-shadow: 0 0 0 0 rgba(217, 69, 95, 0.35); }
@@ -146,6 +166,10 @@
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
 }
 
 @layer base {

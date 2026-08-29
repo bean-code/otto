@@ -40,7 +40,7 @@ function ModelCard({ model, selected, onSelect }: { model: ModelInfo; selected: 
       <h3 className="m-0 text-sm font-bold">{model.name}</h3>
       <p className="m-0 flex-1 text-[12.5px] leading-relaxed text-muted">{model.tagline}</p>
       <div className="mt-0.5 flex items-center justify-between">
-        <code className="text-[11px] text-muted-2">{model.id}</code>
+        <code className="text-[11px] text-muted">{model.id}</code>
         {selected && <strong className="text-[11.5px] text-accent-2">Selected</strong>}
       </div>
     </section>
@@ -83,15 +83,15 @@ export function ModelsView({
       <div className="flex-1 overflow-auto">
         <div className="flex items-baseline justify-between px-6 pt-5">
           <h2 className="m-0 text-[13px] font-semibold uppercase tracking-wide text-muted">Choose a model</h2>
-          <span className="text-xs text-muted-2">
+          <span className="text-xs text-muted">
             Any provider Otto supports - configure a key in Settings to unlock its models.
           </span>
         </div>
         <div className="flex flex-col gap-6 px-6 pt-3 pb-7">
           {error ? (
-            <div className="mx-auto my-16 text-center text-[13px] text-muted-2">Couldn't load models: {error}</div>
+            <div className="mx-auto my-16 text-center text-[13px] text-muted">Couldn't load models: {error}</div>
           ) : models === null || !current ? (
-            <div className="mx-auto my-16 text-center text-[13px] text-muted-2">Loading models...</div>
+            <div className="mx-auto my-16 text-center text-[13px] text-muted">Loading models...</div>
           ) : (
             status.providers.map((provider) => {
               const configured =
@@ -103,7 +103,7 @@ export function ModelsView({
                 return (
                   <section key={provider.id}>
                     <div className="mb-2 flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-muted-2">{provider.name}</h3>
+                      <h3 className="text-sm font-bold text-muted">{provider.name}</h3>
                       <button
                         type="button"
                         onClick={onOpenSettings}

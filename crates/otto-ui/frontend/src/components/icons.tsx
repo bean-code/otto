@@ -86,6 +86,22 @@ const PATHS = {
       <path d="M14 6h6v6" />
     </>
   ),
+  grid: (
+    <>
+      <rect x={3.5} y={3.5} width={7.5} height={7.5} rx={1.5} />
+      <rect x={13} y={3.5} width={7.5} height={7.5} rx={1.5} />
+      <rect x={3.5} y={13} width={7.5} height={7.5} rx={1.5} />
+      <rect x={13} y={13} width={7.5} height={7.5} rx={1.5} />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx={12} cy={12} r={9} />
+      <path d="M12 7v5l3.5 2" />
+    </>
+  ),
+  chevronDown: <path d="M6 9l6 6 6-6" />,
+  send: <path d="M4 12l16-8-6 16-2.5-6.5L4 12Z" />,
 } as const;
 
 export type IconName = keyof typeof PATHS;

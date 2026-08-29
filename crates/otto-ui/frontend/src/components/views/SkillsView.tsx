@@ -30,9 +30,9 @@ export function SkillsView() {
         </div>
         <main className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3.5 px-6 pt-3 pb-7">
           {error ? (
-            <div className="mx-auto my-16 text-center text-[13px] text-muted-2">Couldn't load skills: {error}</div>
+            <div className="mx-auto my-16 text-center text-[13px] text-muted">Couldn't load skills: {error}</div>
           ) : skills === null ? (
-            <div className="mx-auto my-16 text-center text-[13px] text-muted-2">Loading skills...</div>
+            <div className="mx-auto my-16 text-center text-[13px] text-muted">Loading skills...</div>
           ) : (
             skills.map((skill) => {
               const meta = SKILL_META[skill.id] ?? { icon: "gear" as IconName, tone: "bg-accent-2-soft text-accent-2", name: skill.id };

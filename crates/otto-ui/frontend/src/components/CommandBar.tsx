@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Icon } from "@/components/icons";
@@ -18,9 +19,15 @@ let nextEntryId = 0;
 export function CommandBar({
   providerName,
   onPrData,
+  heroContent,
+  suggestions,
 }: {
   providerName: (providerId: string) => string;
   onPrData: (data: GithubPrStepData) => void;
+  /** Rendered above the input, only while the transcript is still empty. */
+  heroContent?: ReactNode;
+  /** Quick-fill pills shown under the input, only while the transcript is still empty. */
+  suggestions?: string[];
 }) {
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -28,6 +35,8 @@ export function CommandBar({
   const [recording, setRecording] = useState(false);
   const [talkBack, setTalkBack] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const isEmpty = entries.length === 0;
 
   async function submit(text: string) {
     const trimmed = text.trim();
@@ -86,6 +95,97 @@ export function CommandBar({
     }
   }
 
+  const micButton = (
+    <button
+      type="button"
+      title="Hold to talk"
+      disabled={busy}
+      onMouseDown={beginRecording}
+      onMouseUp={endRecording}
+      onMouseLeave={endRecording}
+      onTouchStart={(e) => {
+        e.preventDefault();
+        beginRecording();
+      }}
+      onTouchEnd={endRecording}
+      className={cn(
+        "flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-full border transition-all",
+        recording ? "animate-pulse-ring border-danger bg-danger text-white" : "border-border bg-surface text-ink",
+      )}
+    >
+      <Icon name="mic" className="h-4.5 w-4.5" />
+    </button>
+  );
+
+  const thinkingIndicator = busy && (
+    <div className="flex items-center gap-2 text-xs text-muted">
+      <span
+        className="h-2.5 w-2.5 animate-spin-orb rounded-full"
+        style={{ background: "conic-gradient(var(--color-accent), var(--color-accent-2), var(--color-accent))" }}
+      />
+      Otto is working on it...
+    </div>
+  );
+
+  if (isEmpty) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-10">
+        {heroContent}
+
+        <form
+          className="w-full max-w-[680px] rounded-2xl border border-border bg-surface shadow-elevated"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit(inputValue);
+          }}
+        >
+          <div className="flex items-start gap-2.5 px-4 pt-4">
+            <Icon name="sparkle" className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent-2" />
+            <input
+              ref={inputRef}
+              type="text"
+              autoComplete="off"
+              disabled={busy}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder='Build me an agent that... - or ask "show me my open PRs"'
+              className="flex-1 border-none bg-transparent text-sm text-ink outline-none placeholder:text-muted disabled:opacity-60"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 px-4 pt-6 pb-3.5">
+            {micButton}
+            <button
+              type="submit"
+              disabled={busy}
+              title="Send"
+              className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-navy text-white transition-all hover:brightness-125 active:scale-95 disabled:opacity-50"
+            >
+              <Icon name="send" className="h-4.5 w-4.5" />
+            </button>
+          </div>
+        </form>
+
+        {thinkingIndicator}
+
+        {suggestions && suggestions.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-2">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                disabled={busy}
+                onClick={() => submit(s)}
+                className="cursor-pointer rounded-full border border-border bg-surface-sunken px-3.5 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-surface disabled:opacity-50"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <footer className="flex flex-col gap-2.5 border-t border-border bg-surface px-5 pt-3 pb-4">
       <div className="flex max-h-56 flex-col-reverse gap-2 overflow-y-auto text-[13px]">
@@ -117,15 +217,7 @@ export function CommandBar({
         ))}
       </div>
 
-      {busy && (
-        <div className="flex items-center gap-2 text-xs text-muted">
-          <span
-            className="h-2.5 w-2.5 animate-spin-orb rounded-full"
-            style={{ background: "conic-gradient(var(--color-accent), var(--color-accent-2), var(--color-accent))" }}
-          />
-          Otto is working on it...
-        </div>
-      )}
+      {thinkingIndicator}
 
       <form
         className="flex gap-2"

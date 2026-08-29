@@ -40,16 +40,16 @@ export function ActivitiesView({ providerName }: { providerName: (providerId: st
         <div className="flex items-baseline justify-between px-6 pt-5">
           <h2 className="m-0 text-[13px] font-semibold uppercase tracking-wide text-muted">Activity feed</h2>
           {entries && entries.length > 0 && (
-            <span className="text-xs text-muted-2">{entries.length} recent</span>
+            <span className="text-xs text-muted">{entries.length} recent</span>
           )}
         </div>
         <main className="flex flex-col gap-2.5 px-6 pt-2 pb-7">
           {error ? (
-            <div className="mx-auto my-16 text-center text-[13px] text-muted-2">Couldn't load activity: {error}</div>
+            <div className="mx-auto my-16 text-center text-[13px] text-muted">Couldn't load activity: {error}</div>
           ) : entries === null ? (
-            <div className="mx-auto my-16 text-center text-[13px] text-muted-2">Loading activity...</div>
+            <div className="mx-auto my-16 text-center text-[13px] text-muted">Loading activity...</div>
           ) : entries.length === 0 ? (
-            <div className="mx-auto my-16 text-center text-[13px] text-muted-2">
+            <div className="mx-auto my-16 text-center text-[13px] text-muted">
               Nothing yet - run a command from the Dashboard tab to get started.
             </div>
           ) : (
@@ -59,12 +59,12 @@ export function ActivitiesView({ providerName }: { providerName: (providerId: st
                 <div key={entry.id} className="flex gap-3 rounded-2xl border border-border bg-surface px-4 py-3 shadow-card">
                   <div className={cn("mt-1.5 h-2 w-2 flex-shrink-0 rounded-full", KIND_DOT[entry.kind] ?? "bg-muted-2")} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-muted-2">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-muted">
                       {KIND_LABEL[entry.kind] ?? entry.kind}
                     </div>
                     <div className="flex items-baseline justify-between gap-2.5">
                       <div className="text-[13.5px] font-bold">{entry.title}</div>
-                      <time className="whitespace-nowrap text-[11px] text-muted-2">{formatTimestamp(entry.timestamp)}</time>
+                      <time className="whitespace-nowrap text-[11px] text-muted">{formatTimestamp(entry.timestamp)}</time>
                     </div>
                     <div className="mt-1 text-[13px] leading-relaxed text-muted">{entry.detail || "(no detail)"}</div>
                     {entry.steps.length > 0 && (
@@ -79,7 +79,7 @@ export function ActivitiesView({ providerName }: { providerName: (providerId: st
                         ))}
                       </div>
                     )}
-                    {providerLabel && <div className="mt-1.5 text-[11px] text-muted-2 opacity-70">via {providerLabel}</div>}
+                    {providerLabel && <div className="mt-1.5 text-[11px] text-muted opacity-70">via {providerLabel}</div>}
                   </div>
                 </div>
               );

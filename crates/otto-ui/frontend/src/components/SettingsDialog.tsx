@@ -70,7 +70,7 @@ export function SettingsDialog({
             <div key={cred.key}>
               <div className="mb-1.5 flex justify-between text-xs font-semibold">
                 <Label htmlFor={`cred-${cred.key}`}>{cred.label}</Label>
-                <span className={cred.configured ? "font-medium text-success" : "font-medium text-muted-2"}>
+                <span className={cred.configured ? "font-medium text-success" : "font-medium text-muted"}>
                   {cred.configured ? "configured" : "not set"}
                 </span>
               </div>
