@@ -19,8 +19,17 @@ env:
   # aarch64-apple-darwin here (no universal/x86_64 target), and no Mac has
   # ever run Apple Silicon below 11.0, so this costs zero real
   # compatibility. Harmless on Linux/Windows - clang/cc there just ignore
-  # an env var they don't recognize.
+  # env vars they don't recognize.
+  #
+  # Both vars, not just one - verified against whisper-rs-sys's actual
+  # build.rs (not assumed): it builds via CMake, not the `cc` crate
+  # directly, and only forwards env vars prefixed `CMAKE_`/`WHISPER_` as
+  # explicit `-D` defines into the cmake::Config - plain
+  # MACOSX_DEPLOYMENT_TARGET alone (correct for a `cc`-crate build) was
+  # silently never passed through and had zero effect here, which is
+  # exactly what happened on the first attempt at this fix.
   MACOSX_DEPLOYMENT_TARGET: "11.0"
+  CMAKE_OSX_DEPLOYMENT_TARGET: "11.0"
 
 jobs:
   build-test-run:
