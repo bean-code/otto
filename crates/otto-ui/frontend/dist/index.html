@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Otto</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #262b36;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #6ea8fe;
+    --danger: #f4788a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header span { color: var(--muted); font-size: 12px; }
+
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    padding: 16px 20px;
+    overflow: auto;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    min-height: 220px;
+  }
+  .panel h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+  .panel .empty {
+    color: var(--muted);
+    font-size: 13px;
+    margin: auto 0;
+    text-align: center;
+  }
+  .panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .panel li {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  .panel li .title { font-weight: 500; }
+  .panel li .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 14px 20px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  #command-form { display: flex; gap: 8px; }
+  #command-input {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  #command-input:focus { outline: none; border-color: var(--accent); }
+  #command-form button {
+    background: var(--accent);
+    color: #0b1220;
+    border: none;
+    border-radius: 8px;
+    padding: 0 18px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #command-form button:disabled { opacity: 0.5; cursor: default; }
+  #mic-button {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 42px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  #mic-button.recording { background: var(--danger); color: #1a0508; border-color: var(--danger); }
+  #mic-button:disabled { opacity: 0.35; cursor: default; }
+
+  #voice-options {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  #transcript {
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .entry { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .entry .prompt { color: var(--muted); margin-bottom: 4px; }
+  .entry .prompt::before { content: "> "; }
+  .entry .reply { white-space: pre-wrap; }
+  .entry .step { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .entry.error .reply { color: var(--danger); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Otto</h1>
+    <span>personal automation assistant</span>
+  </header>
+
+  <main>
+    <section class="panel" id="panel-prs">
+      <h2>Pull Requests</h2>
+      <div class="empty">Ask "show me my open PRs" below.</div>
+    </section>
+    <section class="panel" id="panel-deployments">
+      <h2>Deployments</h2>
+      <div class="empty">Deploy monitoring isn't wired up yet.</div>
+    </section>
+    <section class="panel" id="panel-meetings">
+      <h2>Upcoming Meetings</h2>
+      <div class="empty">Calendar integration isn't wired up yet.</div>
+    </section>
+  </main>
+
+  <footer>
+    <div id="transcript"></div>
+    <form id="command-form">
+      <button type="button" id="mic-button" title="Hold to talk">&#127908;</button>
+      <input id="command-input" type="text" autocomplete="off"
+        placeholder="Tell Otto what to do - e.g. &quot;show me my open PRs&quot;" />
+      <button type="submit">Run</button>
+    </form>
+    <label id="voice-options">
+      <input type="checkbox" id="talk-back-toggle" />
+      Talk back (speak replies aloud)
+    </label>
+  </footer>
+
+  <script>
+    const form = document.getElementById("command-form");
+    const input = document.getElementById("command-input");
+    const transcript = document.getElementById("transcript");
+    const prPanel = document.getElementById("panel-prs");
+
+    function renderPullRequests(pullRequests, repo) {
+      if (!pullRequests || pullRequests.length === 0) {
+        prPanel.innerHTML = `<h2>Pull Requests</h2><div class="empty">No open pull requests${repo ? ` in ${repo}` : ""}.</div>`;
+        return;
+      }
+      const items = pullRequests
+        .map(
+          (pr) => `<li>
+            <div class="title">#${pr.number} ${pr.draft ? "[draft] " : ""}${escapeHtml(pr.title ?? "")}</div>
+            <div class="meta">${escapeHtml(pr.head ?? "")} -> ${escapeHtml(pr.base ?? "")} - by ${escapeHtml(pr.author ?? "unknown")}</div>
+          </li>`
+        )
+        .join("");
+      prPanel.innerHTML = `<h2>Pull Requests</h2><ul>${items}</ul>`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function addEntry(prompt, turn, error) {
+      const entry = document.createElement("div");
+      entry.className = "entry" + (error ? " error" : "");
+
+      const promptEl = document.createElement("div");
+      promptEl.className = "prompt";
+      promptEl.textContent = prompt;
+      entry.appendChild(promptEl);
+
+      const replyEl = document.createElement("div");
+      replyEl.className = "reply";
+      replyEl.textContent = error ? error : (turn.reply || "(no reply text)");
+      entry.appendChild(replyEl);
+
+      (turn?.steps ?? []).forEach((step) => {
+        const stepEl = document.createElement("div");
+        stepEl.className = "step";
+        stepEl.textContent = `[${step.tool_name}] ${step.summary}`;
+        entry.appendChild(stepEl);
+
+        if (step.tool_name === "github_list_open_prs") {
+          renderPullRequests(step.data?.pull_requests, step.data?.repo);
+        }
+      });
+
+      transcript.prepend(entry);
+    }
+
+    async function runCommand(text) {
+      const invoke = window.__TAURI__.core.invoke;
+      const submitButton = form.querySelector("button[type=submit]");
+      submitButton.disabled = true;
+      input.disabled = true;
+
+      try {
+        const turn = await invoke("run_command", { input: text });
+        addEntry(text, turn, null);
+        if (talkBackToggle.checked && turn.reply) {
+          invoke("speak", { text: turn.reply }).catch((err) => console.warn("speak failed:", err));
+        }
+      } catch (err) {
+        addEntry(text, null, typeof err === "string" ? err : JSON.stringify(err));
+      } finally {
+        submitButton.disabled = false;
+        input.disabled = false;
+        input.value = "";
+        input.focus();
+      }
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (text) runCommand(text);
+    });
+
+    // Push-to-talk: hold the mic button, speak, release to transcribe and
+    // auto-run. Both start_recording/stop_recording fail cleanly (a
+    // rejected promise) when no whisper model is configured - the button
+    // just goes back to idle and the error is dropped, since "voice isn't
+    // set up" isn't worth interrupting the user over on every click.
+    const micButton = document.getElementById("mic-button");
+    const talkBackToggle = document.getElementById("talk-back-toggle");
+    let recording = false;
+
+    async function beginRecording() {
+      if (recording) return;
+      try {
+        await window.__TAURI__.core.invoke("start_recording");
+        recording = true;
+        micButton.classList.add("recording");
+      } catch (err) {
+        console.warn("voice input unavailable:", err);
+      }
+    }
+
+    async function endRecording() {
+      if (!recording) return;
+      recording = false;
+      micButton.classList.remove("recording");
+      micButton.disabled = true;
+      try {
+        const text = await window.__TAURI__.core.invoke("stop_recording");
+        if (text && text.trim()) {
+          input.value = text.trim();
+          await runCommand(text.trim());
+        }
+      } catch (err) {
+        console.warn("transcription failed:", err);
+      } finally {
+        micButton.disabled = false;
+      }
+    }
+
+    micButton.addEventListener("mousedown", beginRecording);
+    micButton.addEventListener("touchstart", (e) => { e.preventDefault(); beginRecording(); });
+    micButton.addEventListener("mouseup", endRecording);
+    micButton.addEventListener("mouseleave", endRecording);
+    micButton.addEventListener("touchend", endRecording);
+  </script>
+</body>
+</html>

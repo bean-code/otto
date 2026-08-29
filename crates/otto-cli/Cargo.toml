@@ -1,0 +1,23 @@
+[package]
+name = "otto-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "otto"
+path = "src/main.rs"
+
+[dependencies]
+otto-core = { workspace = true }
+llmprism = { workspace = true }
+otto-skill-github = { workspace = true }
+otto-skill-deploy = { workspace = true }
+otto-skill-calendar = { workspace = true }
+otto-skill-notify = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+dotenvy.workspace = true
