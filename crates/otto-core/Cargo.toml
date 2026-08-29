@@ -16,3 +16,4 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 keyring = { workspace = true }
 directories = { workspace = true }
+rusqlite = { version = "0.40.2", features = ["bundled"] }

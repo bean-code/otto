@@ -11,7 +11,7 @@ pub use agent::{AgentLoop, AgentStep, AgentTurn, DEFAULT_PERSONA};
 pub use credentials::{CredentialStore, KeyringStore};
 pub use error::{CoreError, CoreResult};
 pub use growth::run_growth_digest;
-pub use history::{HistoryStore, JsonFileHistory};
+pub use history::{HistoryEntry, HistoryStore, SqliteHistory};
 pub use registry::SkillRegistry;
 pub use schedule::ActiveWindow;
 pub use skill::{Skill, SkillOutcome, ToolSpec};

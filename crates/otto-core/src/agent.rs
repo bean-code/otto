@@ -6,7 +6,7 @@ use llmprism::schema::ObjectSchema;
 use llmprism::tool::Tool as LlmTool;
 use llmprism::value_objects::ToolOutput;
 use llmprism::Registry as LlmRegistry;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{CoreError, CoreResult};
@@ -39,7 +39,7 @@ const MAX_STEPS: u32 = 8;
 
 /// One tool call the loop made while handling a command, for the UI/history
 /// to render alongside the reply.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStep {
     pub tool_name: String,
     pub summary: String,
