@@ -18,17 +18,61 @@ pub struct ProviderInfo {
 /// `XProvider::new(api_key)` registration in `build_runtime` - three small,
 /// mechanical edits, not an architecture change.
 pub const PROVIDER_CATALOG: &[ProviderInfo] = &[
-    ProviderInfo { id: "anthropic", name: "Anthropic", needs_api_key: true },
-    ProviderInfo { id: "openai", name: "OpenAI", needs_api_key: true },
-    ProviderInfo { id: "gemini", name: "Google Gemini", needs_api_key: true },
-    ProviderInfo { id: "groq", name: "Groq", needs_api_key: true },
-    ProviderInfo { id: "deepseek", name: "DeepSeek", needs_api_key: true },
-    ProviderInfo { id: "mistral", name: "Mistral", needs_api_key: true },
-    ProviderInfo { id: "xai", name: "xAI", needs_api_key: true },
-    ProviderInfo { id: "openrouter", name: "OpenRouter", needs_api_key: true },
-    ProviderInfo { id: "perplexity", name: "Perplexity", needs_api_key: true },
-    ProviderInfo { id: "zai", name: "Z.ai", needs_api_key: true },
-    ProviderInfo { id: "ollama", name: "Ollama (local)", needs_api_key: false },
+    ProviderInfo {
+        id: "anthropic",
+        name: "Anthropic",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "openai",
+        name: "OpenAI",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "gemini",
+        name: "Google Gemini",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "groq",
+        name: "Groq",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "deepseek",
+        name: "DeepSeek",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "mistral",
+        name: "Mistral",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "xai",
+        name: "xAI",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "openrouter",
+        name: "OpenRouter",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "perplexity",
+        name: "Perplexity",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "zai",
+        name: "Z.ai",
+        needs_api_key: true,
+    },
+    ProviderInfo {
+        id: "ollama",
+        name: "Ollama (local)",
+        needs_api_key: false,
+    },
 ];
 
 /// The OS-keychain credential key a provider's API key is stored under.

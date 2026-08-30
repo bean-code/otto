@@ -65,7 +65,9 @@ impl VoiceEngine {
     /// Starts capturing from the default input device. A no-op if already
     /// recording.
     pub async fn start_recording(&self) -> Result<()> {
-        self.tx.send(Command::StartRecording).map_err(|_| anyhow!("voice worker thread is gone"))
+        self.tx
+            .send(Command::StartRecording)
+            .map_err(|_| anyhow!("voice worker thread is gone"))
     }
 
     /// Stops capturing and transcribes what was captured. Errors if nothing
@@ -75,7 +77,9 @@ impl VoiceEngine {
         self.tx
             .send(Command::StopRecording(reply_tx))
             .map_err(|_| anyhow!("voice worker thread is gone"))?;
-        reply_rx.await.context("voice worker thread dropped the reply channel")?
+        reply_rx
+            .await
+            .context("voice worker thread dropped the reply channel")?
     }
 
     /// Speaks `text` aloud, interrupting anything currently being spoken.
@@ -84,7 +88,9 @@ impl VoiceEngine {
         self.tx
             .send(Command::Speak(text.into(), reply_tx))
             .map_err(|_| anyhow!("voice worker thread is gone"))?;
-        reply_rx.await.context("voice worker thread dropped the reply channel")?
+        reply_rx
+            .await
+            .context("voice worker thread dropped the reply channel")?
     }
 }
 
@@ -96,18 +102,24 @@ struct Recording {
 }
 
 fn worker_loop(model_path: PathBuf, rx: std::sync::mpsc::Receiver<Command>) {
-    let ctx = match WhisperContext::new_with_params(&model_path, WhisperContextParameters::default()) {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::error!("failed to load whisper model from {}: {e}", model_path.display());
-            return;
-        }
-    };
+    let ctx =
+        match WhisperContext::new_with_params(&model_path, WhisperContextParameters::default()) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                tracing::error!(
+                    "failed to load whisper model from {}: {e}",
+                    model_path.display()
+                );
+                return;
+            }
+        };
 
     let mut speaker = match Tts::default() {
         Ok(tts) => Some(tts),
         Err(e) => {
-            tracing::warn!("no text-to-speech backend available ({e}) - speak() will report an error");
+            tracing::warn!(
+                "no text-to-speech backend available ({e}) - speak() will report an error"
+            );
             None
         }
     };
@@ -133,8 +145,13 @@ fn worker_loop(model_path: PathBuf, rx: std::sync::mpsc::Receiver<Command>) {
             }
             Command::Speak(text, reply) => {
                 let result = match speaker.as_mut() {
-                    Some(speaker) => speaker.speak(text, true).map(|_| ()).map_err(|e| anyhow!(e.to_string())),
-                    None => Err(anyhow!("no text-to-speech backend available on this system")),
+                    Some(speaker) => speaker
+                        .speak(text, true)
+                        .map(|_| ())
+                        .map_err(|e| anyhow!(e.to_string())),
+                    None => Err(anyhow!(
+                        "no text-to-speech backend available on this system"
+                    )),
                 };
                 let _ = reply.send(result);
             }
@@ -146,7 +163,9 @@ fn start_capture(host: &cpal::Host) -> Result<Recording> {
     let device = host
         .default_input_device()
         .ok_or_else(|| anyhow!("no default input (microphone) device available"))?;
-    let supported = device.default_input_config().context("failed to read default input config")?;
+    let supported = device
+        .default_input_config()
+        .context("failed to read default input config")?;
     let sample_rate = supported.sample_rate();
     let channels = supported.channels();
     let sample_format = supported.sample_format();
@@ -161,7 +180,10 @@ fn start_capture(host: &cpal::Host) -> Result<Recording> {
         cpal::SampleFormat::F32 => device.build_input_stream(
             config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                buffer_cb.lock().expect("audio buffer mutex poisoned").extend_from_slice(data);
+                buffer_cb
+                    .lock()
+                    .expect("audio buffer mutex poisoned")
+                    .extend_from_slice(data);
             },
             error_callback,
             None,
@@ -194,7 +216,12 @@ fn stop_and_transcribe(ctx: &WhisperContext, recording: Option<Recording>) -> Re
     // Dropping the stream stops capture (cpal streams stop on drop).
     drop(recording.stream);
 
-    let samples = std::mem::take(&mut *recording.buffer.lock().expect("audio buffer mutex poisoned"));
+    let samples = std::mem::take(
+        &mut *recording
+            .buffer
+            .lock()
+            .expect("audio buffer mutex poisoned"),
+    );
     if samples.is_empty() {
         bail!("no audio was captured");
     }
@@ -237,7 +264,9 @@ fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
 }
 
 fn transcribe(ctx: &WhisperContext, pcm_16k_mono: &[f32]) -> Result<String> {
-    let mut state = ctx.create_state().context("failed to create whisper state")?;
+    let mut state = ctx
+        .create_state()
+        .context("failed to create whisper state")?;
 
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_print_progress(false);
@@ -245,7 +274,9 @@ fn transcribe(ctx: &WhisperContext, pcm_16k_mono: &[f32]) -> Result<String> {
     params.set_print_realtime(false);
     params.set_language(Some("en"));
 
-    state.full(params, pcm_16k_mono).context("whisper transcription failed")?;
+    state
+        .full(params, pcm_16k_mono)
+        .context("whisper transcription failed")?;
 
     let mut text = String::new();
     for segment in state.as_iter() {
@@ -269,5 +300,7 @@ pub fn model_available() -> bool {
 /// True if `path` looks like a real GGML model file (exists and is
 /// non-trivially sized) - a cheap sanity check, not a format validator.
 pub fn looks_like_model_file(path: &Path) -> bool {
-    std::fs::metadata(path).map(|m| m.len() > 1_000_000).unwrap_or(false)
+    std::fs::metadata(path)
+        .map(|m| m.len() > 1_000_000)
+        .unwrap_or(false)
 }

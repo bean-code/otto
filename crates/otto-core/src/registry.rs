@@ -69,7 +69,10 @@ impl SkillRegistry {
                 }
             }
         }
-        by_id.into_iter().map(|(id, tools)| SkillInfo { id, tools }).collect()
+        by_id
+            .into_iter()
+            .map(|(id, tools)| SkillInfo { id, tools })
+            .collect()
     }
 
     pub async fn dispatch(&self, tool_name: &str, input: Value) -> CoreResult<SkillOutcome> {

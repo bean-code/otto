@@ -83,11 +83,14 @@ impl LlmTool for SkillToolAdapter {
     async fn call(&self, args: Value) -> Result<ToolOutput, ToolError> {
         match self.registry.dispatch(&self.name, args).await {
             Ok(outcome) => {
-                self.steps.lock().expect("steps mutex poisoned").push(AgentStep {
-                    tool_name: self.name.clone(),
-                    summary: outcome.summary.clone(),
-                    data: outcome.data,
-                });
+                self.steps
+                    .lock()
+                    .expect("steps mutex poisoned")
+                    .push(AgentStep {
+                        tool_name: self.name.clone(),
+                        summary: outcome.summary.clone(),
+                        data: outcome.data,
+                    });
                 Ok(ToolOutput::from(outcome.summary))
             }
             Err(err) => Err(ToolError::Runtime {
@@ -141,7 +144,8 @@ impl AgentLoop {
             .tool_specs()
             .into_iter()
             .map(|spec| {
-                let schema = ObjectSchema::from_raw_json_schema(spec.name.clone(), spec.input_schema);
+                let schema =
+                    ObjectSchema::from_raw_json_schema(spec.name.clone(), spec.input_schema);
                 Arc::new(SkillToolAdapter {
                     name: spec.name,
                     description: spec.description,

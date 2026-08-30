@@ -32,8 +32,9 @@ impl ActiveWindow {
 
     fn parse(start: &str, end: &str) -> CoreResult<Self> {
         let parse_one = |s: &str| {
-            NaiveTime::parse_from_str(s, "%H:%M")
-                .map_err(|e| CoreError::Other(anyhow::anyhow!("invalid time '{s}' (expected HH:MM): {e}")))
+            NaiveTime::parse_from_str(s, "%H:%M").map_err(|e| {
+                CoreError::Other(anyhow::anyhow!("invalid time '{s}' (expected HH:MM): {e}"))
+            })
         };
         Ok(Self {
             start: parse_one(start)?,
@@ -61,7 +62,11 @@ impl ActiveWindow {
     /// polling in a tight loop.
     pub fn duration_until_next_boundary(&self) -> Duration {
         let now = Local::now().time();
-        let boundary = if self.contains(now) { self.end } else { self.start };
+        let boundary = if self.contains(now) {
+            self.end
+        } else {
+            self.start
+        };
 
         let now_secs = now.num_seconds_from_midnight() as i64;
         let boundary_secs = boundary.num_seconds_from_midnight() as i64;

@@ -12,8 +12,9 @@ use llmprism::providers::openai_compatible::{
 use llmprism::Registry as LlmRegistry;
 use otto_core::{
     credential_key, ActiveWindow, ActivityEntry, ActivityKind, ActivityLog, AgentLoop, AgentTurn,
-    CredentialStore, KeyringStore, ModelInfo, Profile, ProfileStore, ProviderInfo, SkillInfo,
-    SkillRegistry, SqliteStore, DEFAULT_PERSONA, LOCAL_PROFILE_ID, MODEL_CATALOG, PROVIDER_CATALOG,
+    CoreError, CredentialStore, KeyringStore, ModelInfo, Profile, ProfileStore, ProviderInfo,
+    SkillInfo, SkillRegistry, SqliteStore, DEFAULT_PERSONA, LOCAL_PROFILE_ID, MODEL_CATALOG,
+    PROVIDER_CATALOG,
 };
 use otto_skill_calendar::{connect_google_calendar, CalendarSkill};
 use otto_skill_deploy::DeploySkill;
@@ -215,7 +216,27 @@ async fn run_command(
         .await
         .run(&input)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| friendly_run_error(&selected, &e))
+}
+
+/// `run`'s LLM errors reach here already flattened to a string (see
+/// `CoreError::Llm`), so a dead Ollama server surfaces as reqwest's raw
+/// "Could not connect to localhost: Connection refused" - accurate but
+/// meaningless to someone who never touched a socket. Ollama's the only
+/// provider that can fail this way (every hosted provider already got
+/// caught above by the missing-API-key check), so it's the only one worth
+/// pattern-matching the message for.
+fn friendly_run_error(selected: &SelectedModel, err: &CoreError) -> String {
+    let message = err.to_string();
+    if selected.provider == "ollama" && message.to_lowercase().contains("connect") {
+        format!(
+            "couldn't reach Ollama on localhost - is it running? Start it with `ollama serve`, \
+             make sure '{}' is pulled (`ollama pull {}`), or pick a different model in Settings.",
+            selected.model, selected.model
+        )
+    } else {
+        message
+    }
 }
 
 /// Most recent activity first (commands, growth-digest notes, schedule
